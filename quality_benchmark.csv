@@ -1,0 +1,8 @@
+user_id,email,name,gender,age,income,country
+1,test1@example.com,Alice,Male,25.0,50000.0,USA
+2,test2@example.com,Bob,Male,30.0,60000.0,USA
+3,test3@example.com,Charlie,Male,35.0,,USA
+4,,David,Male,,,USA
+5,,Eve,Female,,,UK
+1,test1@example.com,Alice,Male,25.0,50000.0,USA
+2,test2@example.com,Bob,Male,30.0,60000.0,USA

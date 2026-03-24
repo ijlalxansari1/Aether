@@ -1,0 +1,97 @@
+{
+  "session_id": "8afb8c6d-1cdd-4b95-b103-e31dc3b2768a",
+  "iq_score": 100.0,
+  "intent": "exploratory",
+  "profile": "mixed",
+  "eda": {
+    "summary": {
+      "rows": 2,
+      "columns": 5
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "numeric",
+        "missing_percent": 0.0,
+        "notes": "Potential Identifier"
+      },
+      {
+        "name": "title",
+        "type": "categorical",
+        "missing_percent": 0.0,
+        "notes": "Low cardinality"
+      },
+      {
+        "name": "type",
+        "type": "categorical",
+        "missing_percent": 0.0,
+        "notes": "Low cardinality"
+      },
+      {
+        "name": "release_year",
+        "type": "numeric",
+        "missing_percent": 0.0,
+        "notes": "Continuous variable"
+      },
+      {
+        "name": "rating",
+        "type": "categorical",
+        "missing_percent": 0.0,
+        "notes": "Low cardinality"
+      }
+    ],
+    "note": "Mixed dataset \u2014 run both statistical and categorical analysis tracks."
+  },
+  "ethical": {
+    "type": "none",
+    "columns": [],
+    "risk_level": "Low",
+    "message": "Dataset appears clean. No sensitive attributes detected.",
+    "recommendations": [
+      "No immediate action required \u2014 continue monitoring"
+    ]
+  },
+  "insights": {
+    "summary": "Aether has scanned 5 nodes. This appears to be a general analytical dataset with high data completeness.",
+    "insights": [
+      "Global data completeness is high \u2192 enables maximum reliability \u2192 proceed with direct intelligence mapping.",
+      "Analyzing 5 nodes for exploratory patterns.",
+      "Analyzing 5 nodes for exploratory patterns."
+    ]
+  },
+  "quality": {
+    "quality_score": 100,
+    "grade": "Excellent",
+    "issues": [],
+    "recommendations": [],
+    "metrics": {
+      "completeness": 100.0,
+      "duplicates": 0.0,
+      "is_balanced": true,
+      "privacy_risk": "Low"
+    }
+  },
+  "features": {
+    "important_features": [
+      {
+        "name": "id",
+        "reason": "High information density"
+      },
+      {
+        "name": "release_year",
+        "reason": "High information density"
+      }
+    ],
+    "low_value_features": [],
+    "risky_features": []
+  },
+  "story": {
+    "title": "Aether Intelligence Story: Exploratory (Mixed)",
+    "chapters": [
+      "This dataset appears to be a balanced mix of numerical and categorical attributes. Given your exploratory intent, the system recommends  a multi-vector structural mapping approach.",
+      "The overall data health is robust. Aether has identified Low risk markers.",
+      "The system has calibrated its intelligence pipeline for exploratory processing on mixed signals."
+    ],
+    "system_verdict": "System clearance granted"
+  }
+}

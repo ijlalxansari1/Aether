@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --accent: 79, 70, 229; /* Indigo 600 */
+  --accent-glow: rgba(79, 70, 229, 0.15);
+  --bg-gradient: linear-gradient(to bottom right, #020617, #0f172a, #1e1b4b);
+}
+
+[data-theme='ml'] {
+  --accent: 192, 38, 211; /* Fuchsia 600 */
+  --accent-glow: rgba(192, 38, 211, 0.2);
+  --bg-gradient: linear-gradient(to bottom right, #020617, #2e1065, #022c22);
+}
+
+[data-theme='business'] {
+  --accent: 37, 99, 235; /* Blue 600 */
+  --accent-glow: rgba(37, 99, 235, 0.15);
+  --bg-gradient: linear-gradient(to bottom right, #020617, #082f49, #0f172a);
+}
+
+[data-theme='cleaning'] {
+  --accent: 5, 150, 105; /* Emerald 600 */
+  --accent-glow: rgba(5, 150, 105, 0.2);
+  --bg-gradient: linear-gradient(to bottom right, #020617, #064e3b, #0f172a);
+}
+
+@layer base {
+  body {
+    @apply min-h-screen bg-fixed bg-no-repeat transition-all duration-1000;
+    background: var(--bg-gradient);
+    color: #f8fafc;
+  }
+}
+
+@layer utilities {
+  .glass-morphic {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.25)];
+  }
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-lg border border-white/10 shadow-sm transition-all duration-300;
+  }
+  .glass-card:hover {
+    @apply bg-white/10 -translate-y-1 shadow-indigo-500/10 border-white/20 shadow-2xl;
+  }
+  .neon-border {
+    @apply border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.2)];
+  }
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+}

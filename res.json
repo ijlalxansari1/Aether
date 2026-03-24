@@ -1,0 +1,453 @@
+{
+  "status": "success",
+  "message": null,
+  "details": null,
+  "context": {
+    "eda": {
+      "summary": {
+        "rows": 5,
+        "columns": 4
+      },
+      "columns": [
+        {
+          "name": "id",
+          "type": "numeric",
+          "missing_percent": 0.0,
+          "unique_count": 5,
+          "cardinality": "continuous",
+          "distribution": "normal-like",
+          "notes": "Potential Identifier",
+          "chart_data": [
+            {
+              "bin": "1.0 - 1.2",
+              "count": 1
+            },
+            {
+              "bin": "1.2 - 1.4",
+              "count": 0
+            },
+            {
+              "bin": "1.4 - 1.6",
+              "count": 0
+            },
+            {
+              "bin": "1.6 - 1.8",
+              "count": 0
+            },
+            {
+              "bin": "1.8 - 2.0",
+              "count": 0
+            },
+            {
+              "bin": "2.0 - 2.2",
+              "count": 1
+            },
+            {
+              "bin": "2.2 - 2.4",
+              "count": 0
+            },
+            {
+              "bin": "2.4 - 2.6",
+              "count": 0
+            },
+            {
+              "bin": "2.6 - 2.8",
+              "count": 0
+            },
+            {
+              "bin": "2.8 - 3.0",
+              "count": 0
+            },
+            {
+              "bin": "3.0 - 3.2",
+              "count": 1
+            },
+            {
+              "bin": "3.2 - 3.4",
+              "count": 0
+            },
+            {
+              "bin": "3.4 - 3.6",
+              "count": 0
+            },
+            {
+              "bin": "3.6 - 3.8",
+              "count": 0
+            },
+            {
+              "bin": "3.8 - 4.0",
+              "count": 0
+            },
+            {
+              "bin": "4.0 - 4.2",
+              "count": 1
+            },
+            {
+              "bin": "4.2 - 4.4",
+              "count": 0
+            },
+            {
+              "bin": "4.4 - 4.6",
+              "count": 0
+            },
+            {
+              "bin": "4.6 - 4.8",
+              "count": 0
+            },
+            {
+              "bin": "4.8 - 5.0",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "name": "age",
+          "type": "numeric",
+          "missing_percent": 0.0,
+          "unique_count": 5,
+          "cardinality": "continuous",
+          "distribution": "normal-like",
+          "notes": "Continuous (symmetric)",
+          "chart_data": [
+            {
+              "bin": "22.0 - 22.9",
+              "count": 1
+            },
+            {
+              "bin": "22.9 - 23.8",
+              "count": 0
+            },
+            {
+              "bin": "23.8 - 24.7",
+              "count": 0
+            },
+            {
+              "bin": "24.7 - 25.6",
+              "count": 1
+            },
+            {
+              "bin": "25.6 - 26.5",
+              "count": 0
+            },
+            {
+              "bin": "26.5 - 27.4",
+              "count": 0
+            },
+            {
+              "bin": "27.4 - 28.3",
+              "count": 0
+            },
+            {
+              "bin": "28.3 - 29.2",
+              "count": 0
+            },
+            {
+              "bin": "29.2 - 30.1",
+              "count": 1
+            },
+            {
+              "bin": "30.1 - 31.0",
+              "count": 0
+            },
+            {
+              "bin": "31.0 - 31.9",
+              "count": 0
+            },
+            {
+              "bin": "31.9 - 32.8",
+              "count": 0
+            },
+            {
+              "bin": "32.8 - 33.7",
+              "count": 0
+            },
+            {
+              "bin": "33.7 - 34.6",
+              "count": 0
+            },
+            {
+              "bin": "34.6 - 35.5",
+              "count": 1
+            },
+            {
+              "bin": "35.5 - 36.4",
+              "count": 0
+            },
+            {
+              "bin": "36.4 - 37.3",
+              "count": 0
+            },
+            {
+              "bin": "37.3 - 38.2",
+              "count": 0
+            },
+            {
+              "bin": "38.2 - 39.1",
+              "count": 0
+            },
+            {
+              "bin": "39.1 - 40.0",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "name": "income",
+          "type": "numeric",
+          "missing_percent": 0.0,
+          "unique_count": 5,
+          "cardinality": "continuous",
+          "distribution": "skewed",
+          "notes": "Continuous (right-skewed)",
+          "chart_data": [
+            {
+              "bin": "35000.0 - 37000.0",
+              "count": 1
+            },
+            {
+              "bin": "37000.0 - 39000.0",
+              "count": 0
+            },
+            {
+              "bin": "39000.0 - 41000.0",
+              "count": 0
+            },
+            {
+              "bin": "41000.0 - 43000.0",
+              "count": 0
+            },
+            {
+              "bin": "43000.0 - 45000.0",
+              "count": 0
+            },
+            {
+              "bin": "45000.0 - 47000.0",
+              "count": 1
+            },
+            {
+              "bin": "47000.0 - 49000.0",
+              "count": 0
+            },
+            {
+              "bin": "49000.0 - 51000.0",
+              "count": 1
+            },
+            {
+              "bin": "51000.0 - 53000.0",
+              "count": 0
+            },
+            {
+              "bin": "53000.0 - 55000.0",
+              "count": 0
+            },
+            {
+              "bin": "55000.0 - 57000.0",
+              "count": 0
+            },
+            {
+              "bin": "57000.0 - 59000.0",
+              "count": 0
+            },
+            {
+              "bin": "59000.0 - 61000.0",
+              "count": 1
+            },
+            {
+              "bin": "61000.0 - 63000.0",
+              "count": 0
+            },
+            {
+              "bin": "63000.0 - 65000.0",
+              "count": 0
+            },
+            {
+              "bin": "65000.0 - 67000.0",
+              "count": 0
+            },
+            {
+              "bin": "67000.0 - 69000.0",
+              "count": 0
+            },
+            {
+              "bin": "69000.0 - 71000.0",
+              "count": 0
+            },
+            {
+              "bin": "71000.0 - 73000.0",
+              "count": 0
+            },
+            {
+              "bin": "73000.0 - 75000.0",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "name": "score",
+          "type": "numeric",
+          "missing_percent": 0.0,
+          "unique_count": 5,
+          "cardinality": "continuous",
+          "distribution": "normal-like",
+          "notes": "Continuous (symmetric)",
+          "chart_data": [
+            {
+              "bin": "0.6 - 0.62",
+              "count": 1
+            },
+            {
+              "bin": "0.62 - 0.64",
+              "count": 0
+            },
+            {
+              "bin": "0.64 - 0.65",
+              "count": 0
+            },
+            {
+              "bin": "0.65 - 0.67",
+              "count": 0
+            },
+            {
+              "bin": "0.67 - 0.69",
+              "count": 0
+            },
+            {
+              "bin": "0.69 - 0.7",
+              "count": 1
+            },
+            {
+              "bin": "0.7 - 0.72",
+              "count": 0
+            },
+            {
+              "bin": "0.72 - 0.74",
+              "count": 0
+            },
+            {
+              "bin": "0.74 - 0.76",
+              "count": 0
+            },
+            {
+              "bin": "0.76 - 0.77",
+              "count": 0
+            },
+            {
+              "bin": "0.77 - 0.79",
+              "count": 0
+            },
+            {
+              "bin": "0.79 - 0.81",
+              "count": 1
+            },
+            {
+              "bin": "0.81 - 0.83",
+              "count": 0
+            },
+            {
+              "bin": "0.83 - 0.84",
+              "count": 0
+            },
+            {
+              "bin": "0.84 - 0.86",
+              "count": 0
+            },
+            {
+              "bin": "0.86 - 0.88",
+              "count": 0
+            },
+            {
+              "bin": "0.88 - 0.9",
+              "count": 0
+            },
+            {
+              "bin": "0.9 - 0.91",
+              "count": 1
+            },
+            {
+              "bin": "0.91 - 0.93",
+              "count": 0
+            },
+            {
+              "bin": "0.93 - 0.95",
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "missing_ratio": 0.0,
+      "duplicates": 0
+    },
+    "validation": null,
+    "cleaning": null,
+    "preprocessing": null,
+    "ethical": {
+      "type": "demographic",
+      "columns": [
+        "age"
+      ],
+      "risk_level": "Medium",
+      "message": "Demographic attributes detected which may introduce demographic bias or fairness concerns depending on predictive modeling usage."
+    },
+    "quality": {
+      "quality_score": 100,
+      "grade": "Excellent",
+      "issues": [],
+      "recommendations": []
+    },
+    "features": {
+      "important_features": [
+        {
+          "name": "id",
+          "reason": "High information density"
+        },
+        {
+          "name": "age",
+          "reason": "High information density"
+        },
+        {
+          "name": "income",
+          "reason": "High information density"
+        },
+        {
+          "name": "score",
+          "reason": "High information density"
+        }
+      ],
+      "low_value_features": [],
+      "risky_features": []
+    }
+  },
+  "story": {
+    "title": "Aether Story: Exploratory Mode",
+    "chapters": [
+      "Dataset (5 rows) analyzed with exploratory intent. Profile: numerical.",
+      "No critical cleaning issues found.",
+      "Dataset structure is stable for direct analysis.",
+      "Key signals: id, age. Risk level: Medium."
+    ],
+    "system_verdict": "Clearance Granted"
+  },
+  "insights": {
+    "summary": "Aether has analyzed 3 dynamic vectors for your exploratory mission.",
+    "insights": [
+      {
+        "observation": "All 4 columns show high data completeness.",
+        "implication": "Statistically robust dataset.",
+        "recommendation": "Proceed with exploratory correlations."
+      },
+      {
+        "observation": "Core dataset integrity is verified.",
+        "implication": "Zero major structural anomalies found (duplicates, high nulls).",
+        "recommendation": "Safe to utilize raw dataset for unadjusted metrics."
+      },
+      {
+        "observation": "High signal strength in id, age.",
+        "implication": "These are the optimal predictors for modeling.",
+        "recommendation": "Analyze these columns for deeper interactions."
+      }
+    ]
+  },
+  "validation": null,
+  "intent": "exploratory",
+  "profile": "mixed"
+}

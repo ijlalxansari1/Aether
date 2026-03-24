@@ -1,0 +1,41 @@
+# Next.js
+.next/
+out/
+build/
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.mypy_cache/
+.pytest_cache/
+
+# Dataset / Large Files
+/tmp/
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
