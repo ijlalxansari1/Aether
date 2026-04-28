@@ -10,7 +10,7 @@ import SummaryCard from "../../components/SummaryCard";
 import QualityDashboard from "../../components/QualityDashboard";
 import EthicalPanel from "../../components/EthicalPanel";
 import InsightsList from "../../components/InsightsList";
-import DataTable from "../../components/DataTable";
+import AttributeMap from "../../components/AttributeMap";
 import StoryEngine from "../../components/StoryEngine";
 import FeatureIntelligence from "../../components/FeatureIntelligence";
 
@@ -146,7 +146,7 @@ function ResultsLoader() {
       </div>
 
       <div className="animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-700">
-        <DataTable columns={data.eda?.columns || []} />
+        <AttributeMap columns={data.eda?.columns || []} />
       </div>
 
       {/* BOTTOM SECTION: ACTION HUB */}
