@@ -36,9 +36,6 @@ async def analyze_dataset(
         results = engine.run()
     except Exception as e:
         logger.error(f"Pipeline failed | dataset_id={dataset_id} | error={e}", exc_info=True)
-        import traceback
-        with open("error.txt", "w") as f:
-            f.write(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
         
     import traceback
