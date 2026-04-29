@@ -3,7 +3,7 @@ import io
 import json
 import logging
 
-import magic
+import filetype
 import pandas as pd
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
@@ -32,7 +32,8 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     # ── 2. Extension + MIME double validation ─────────────────────
     filename = file.filename or "unknown"
     ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
-    mime = magic.from_buffer(content[:2048], mime=True)
+    kind = filetype.guess(content[:2048])
+    mime = kind.mime if kind else "application/octet-stream"
 
     if ext not in settings.ALLOWED_EXTENSIONS or mime not in settings.ALLOWED_MIME_TYPES:
         logger.warning(f"Rejected upload | ext={ext} | mime={mime} | filename={filename}")
