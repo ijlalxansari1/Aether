@@ -31,8 +31,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 @app.exception_handler(ResponseValidationError)
 async def validation_exception_handler(request: Request, exc: ResponseValidationError):
     logger.error(f"Response validation error: {exc.errors()}", exc_info=True)
-    with open("error.txt", "w") as f:
-        f.write(f"VALIDATION ERROR:\n{exc.errors()}")
     return JSONResponse(
         status_code=500,
         content={"error": f"Schema validation failed: {exc.errors()}"},
@@ -59,7 +57,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:3000")],
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

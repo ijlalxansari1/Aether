@@ -2,9 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install system dependencies required by python-magic
+RUN apt-get update && apt-get install -y libmagic1 && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Switch from Windows python-magic-bin to Linux python-magic during build
+RUN sed -i 's/python-magic-bin.*/python-magic/g' requirements.txt && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
