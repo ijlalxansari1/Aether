@@ -10,7 +10,7 @@ const secretKey = new TextEncoder().encode(
 );
 
 async function getUserFromRequest() {
-  const token = cookies().get('auth_token')?.value;
+  const token = (await cookies()).get('auth_token')?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secretKey);
