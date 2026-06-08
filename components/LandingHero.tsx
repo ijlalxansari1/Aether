@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 
 interface HeroProps {
   onScroll: () => void;
+  hasSavedSession?: boolean;
+  onResume?: () => void;
 }
 
 const FEATURES = [
@@ -23,7 +25,7 @@ const STATS = [
   { val: '100%', label: 'Browser Native' },
 ];
 
-export default function LandingHero({ onScroll }: HeroProps) {
+export default function LandingHero({ onScroll, hasSavedSession, onResume }: HeroProps) {
   const [visible, setVisible] = useState(false);
   const [tick, setTick] = useState(0);
 
@@ -80,9 +82,14 @@ export default function LandingHero({ onScroll }: HeroProps) {
           <button className="btn btn-primary hero-cta-primary" onClick={onScroll}>
             🚀 Start Pipeline
           </button>
+          {hasSavedSession && onResume && (
+            <button className="btn btn-secondary hero-cta-secondary" style={{ borderColor: 'var(--emerald)', color: 'var(--emerald)' }} onClick={onResume}>
+              ♻️ Resume Workspace
+            </button>
+          )}
           <a
             className="btn btn-secondary hero-cta-secondary"
-            href="https://github.com"
+            href="https://github.com/ijlalxansari1/Aether"
             target="_blank"
             rel="noreferrer"
           >

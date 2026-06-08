@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
 import { ColProfile, ColumnType, DataRow } from '@/lib/types';
 import { profileColumn, calcBoxPlot } from '@/lib/dataUtils';
+import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
 
 Chart.register(...registerables);
 
@@ -12,11 +13,14 @@ interface AnalyzeStageProps {
   types: Record<string, ColumnType>;
   rows: DataRow[];
   onProceed: () => void;
+  onUpdateRows?: (newHeaders: string[], newRows: DataRow[]) => void;
+  onError?: (msg: string) => void;
 }
 
 type ActiveChart = 'distribution' | 'scatter' | 'boxplot' | 'correlation';
+type MainTab = 'bi' | 'sql';
 
-export default function AnalyzeStage({ headers, types, rows, onProceed }: AnalyzeStageProps) {
+export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdateRows, onError }: AnalyzeStageProps) {
   const numCols = headers.filter(h => types[h] === 'number');
   const strCols = headers.filter(h => types[h] === 'string');
   const [activeDistCol, setActiveDistCol] = useState(numCols[0] ?? '');
@@ -24,6 +28,13 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
   const [scatterY, setScatterY] = useState(numCols[1] ?? numCols[0] ?? '');
   const [scatterGroup, setScatterGroup] = useState(strCols[0] ?? '');
   const [activeChart, setActiveChart] = useState<ActiveChart>('distribution');
+  const [mainTab, setMainTab] = useState<MainTab>('sql'); 
+
+  // SQL State
+  const [sqlQuery, setSqlQuery] = useState('SELECT * FROM dataset LIMIT 10;');
+  const [sqlResults, setSqlResults] = useState<DataRow[] | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [dbReady, setDbReady] = useState(false);
 
   const distRef = useRef<HTMLCanvasElement>(null);
   const corrRef = useRef<HTMLCanvasElement>(null);
@@ -36,9 +47,47 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
 
   const profiles: ColProfile[] = headers.map(h => profileColumn(h, types[h], rows));
 
+  // Initialize DuckDB
+  useEffect(() => {
+    async function init() {
+      try {
+        const db = await getDb();
+        await loadDataToTable(db, 'dataset', rows);
+        setDbReady(true);
+      } catch (err: any) {
+        onError?.('Failed to initialize DuckDB: ' + err.message);
+      }
+    }
+    init();
+  }, [rows, onError]);
+
+  async function handleRunSQL() {
+    if (!dbReady) return;
+    setIsExecuting(true);
+    try {
+      const db = await getDb();
+      const results = await executeQuery(db, sqlQuery);
+      setSqlResults(results);
+    } catch (err: any) {
+      onError?.('SQL Error: ' + err.message);
+    } finally {
+      setIsExecuting(false);
+    }
+  }
+
+  function handleApplySQL() {
+    if (!sqlResults || sqlResults.length === 0) {
+      onError?.('Cannot apply empty results');
+      return;
+    }
+    const newHeaders = Object.keys(sqlResults[0]);
+    onUpdateRows?.(newHeaders, sqlResults);
+    setSqlResults(null);
+  }
+
   // Distribution chart
   useEffect(() => {
-    if (!activeDistCol || !distRef.current) return;
+    if (mainTab !== 'bi' || !activeDistCol || !distRef.current) return;
     const vals = rows.map(r => Number(r[activeDistCol])).filter(v => !isNaN(v)).sort((a, b) => a - b);
     if (!vals.length) return;
     const bins = 14;
@@ -57,11 +106,11 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
       options: { ...chartBase(), plugins: { legend: { display: false } } },
     });
     return () => { distChart.current?.destroy(); };
-  }, [activeDistCol, rows]);
+  }, [activeDistCol, rows, mainTab]);
 
   // Scatter plot
   useEffect(() => {
-    if (!scatterRef.current || !scatterX || !scatterY) return;
+    if (mainTab !== 'bi' || !scatterRef.current || !scatterX || !scatterY) return;
     const groups: Record<string, { x: number; y: number }[]> = {};
     rows.forEach(r => {
       const x = Number(r[scatterX]), y = Number(r[scatterY]);
@@ -92,11 +141,11 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
       },
     });
     return () => { scatterChart.current?.destroy(); };
-  }, [scatterX, scatterY, scatterGroup, rows]);
+  }, [scatterX, scatterY, scatterGroup, rows, mainTab]);
 
   // Box plot (simulated as floating bar chart)
   useEffect(() => {
-    if (!boxRef.current || !numCols.length) return;
+    if (mainTab !== 'bi' || !boxRef.current || !numCols.length) return;
     const cols = numCols.slice(0, 6);
     const boxData = cols.map(c => calcBoxPlot(c, rows));
     if (boxChart.current) boxChart.current.destroy();
@@ -118,11 +167,11 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
       },
     });
     return () => { boxChart.current?.destroy(); };
-  }, [rows, numCols.join(',')]);
+  }, [rows, numCols.join(','), mainTab]);
 
   // Correlation bubble
   useEffect(() => {
-    if (!corrRef.current || numCols.length < 2) return;
+    if (mainTab !== 'bi' || !corrRef.current || numCols.length < 2) return;
     const cols = numCols.slice(0, 6);
     const colors: string[] = [];
     const data = cols.flatMap((a, i) => cols.map((b, j) => {
@@ -152,7 +201,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
       },
     });
     return () => { corrChart.current?.destroy(); };
-  }, [rows, numCols.join(',')]);
+  }, [rows, numCols.join(','), mainTab]);
 
   const CHART_TABS: { id: ActiveChart; label: string; icon: string }[] = [
     { id: 'distribution', label: 'Distribution', icon: '📊' },
@@ -165,86 +214,150 @@ export default function AnalyzeStage({ headers, types, rows, onProceed }: Analyz
     <div className="stage-content">
       <div className="stage-header flex-between">
         <div>
-          <h1 className="stage-title"><span>📊</span> Data Analysis & BI</h1>
-          <p className="stage-sub">Distribution, scatter plots, box plots, correlation matrix, and column profiles.</p>
+          <h1 className="stage-title"><span>⚙️</span> Transform & Analyze</h1>
+          <p className="stage-sub">Use DuckDB SQL for complex transformations or view BI charts.</p>
         </div>
         <button className="btn btn-primary" onClick={onProceed}>Generate Story →</button>
       </div>
 
-      {/* Main chart area */}
-      <div className="card chart-card">
-        <div className="flex-between" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-          <div className="chart-tabs">
-            {CHART_TABS.map(t => (
-              <button key={t.id} className={`chart-tab ${activeChart === t.id ? 'active' : ''}`} onClick={() => setActiveChart(t.id)}>
-                {t.icon} {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="chart-tabs" style={{ marginBottom: 20 }}>
+        <button className={`chart-tab ${mainTab === 'sql' ? 'active' : ''}`} onClick={() => setMainTab('sql')}>
+          💾 SQL Workspace (DuckDB)
+        </button>
+        <button className={`chart-tab ${mainTab === 'bi' ? 'active' : ''}`} onClick={() => setMainTab('bi')}>
+          📊 BI Analysis
+        </button>
+      </div>
 
-        {/* Distribution */}
-        {activeChart === 'distribution' && (
-          <>
-            <div className="chart-tabs" style={{ marginBottom: 14 }}>
-              {numCols.slice(0, 6).map(c => (
-                <button key={c} className={`chart-tab ${c === activeDistCol ? 'active' : ''}`} onClick={() => setActiveDistCol(c)}>{c}</button>
+      {mainTab === 'sql' && (
+        <div className="card chart-card">
+          <div className="flex-between" style={{ marginBottom: 10 }}>
+            <h3 style={{ fontSize: '18px', color: '#fff' }}>DuckDB SQL Editor</h3>
+            {!dbReady ? (
+              <span style={{ color: 'var(--amber)' }}>⏳ Initializing DuckDB WASM...</span>
+            ) : (
+              <span style={{ color: 'var(--emerald)' }}>✅ Connected</span>
+            )}
+          </div>
+          
+          <textarea
+            className="paste-area"
+            style={{ fontFamily: 'monospace', height: '150px', fontSize: '16px', background: '#0a0a10', color: '#00d4ff', borderColor: 'var(--glass-border)' }}
+            value={sqlQuery}
+            onChange={(e) => setSqlQuery(e.target.value)}
+            disabled={!dbReady || isExecuting}
+          />
+          
+          <div className="flex gap-8" style={{ marginTop: 10 }}>
+            <button className="btn btn-secondary" onClick={handleRunSQL} disabled={!dbReady || isExecuting}>
+              {isExecuting ? '⏳ Executing...' : '▶ Run Query'}
+            </button>
+            {sqlResults && (
+              <button className="btn btn-primary" onClick={handleApplySQL}>
+                ✅ Apply to Pipeline
+              </button>
+            )}
+          </div>
+
+          {sqlResults && (
+            <div style={{ marginTop: 20 }}>
+              <div className="card-label">Result Preview ({sqlResults.length} rows)</div>
+              <div className="table-wrap" style={{ maxHeight: '300px' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      {Object.keys(sqlResults[0] || {}).map(h => <th key={h}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sqlResults.slice(0, 50).map((r, i) => (
+                      <tr key={i}>
+                        {Object.values(r).map((val, j) => <td key={j}>{String(val)}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mainTab === 'bi' && (
+        <div className="card chart-card">
+          <div className="flex-between" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <div className="chart-tabs">
+              {CHART_TABS.map(t => (
+                <button key={t.id} className={`chart-tab ${activeChart === t.id ? 'active' : ''}`} onClick={() => setActiveChart(t.id)}>
+                  {t.icon} {t.label}
+                </button>
               ))}
             </div>
-            <canvas ref={distRef} style={{ maxHeight: 300 }} />
-          </>
-        )}
+          </div>
 
-        {/* Scatter */}
-        {activeChart === 'scatter' && (
-          <>
-            <div className="flex gap-8" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-              <div className="axis-picker">
-                <label className="adv-label">X Axis</label>
-                <select className="adv-select" value={scatterX} onChange={e => setScatterX(e.target.value)}>
-                  {numCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+          {/* Distribution */}
+          {activeChart === 'distribution' && (
+            <>
+              <div className="chart-tabs" style={{ marginBottom: 14 }}>
+                {numCols.slice(0, 6).map(c => (
+                  <button key={c} className={`chart-tab ${c === activeDistCol ? 'active' : ''}`} onClick={() => setActiveDistCol(c)}>{c}</button>
+                ))}
               </div>
-              <div className="axis-picker">
-                <label className="adv-label">Y Axis</label>
-                <select className="adv-select" value={scatterY} onChange={e => setScatterY(e.target.value)}>
-                  {numCols.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              {strCols.length > 0 && (
+              <canvas ref={distRef} style={{ maxHeight: 300 }} />
+            </>
+          )}
+
+          {/* Scatter */}
+          {activeChart === 'scatter' && (
+            <>
+              <div className="flex gap-8" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
                 <div className="axis-picker">
-                  <label className="adv-label">Color by</label>
-                  <select className="adv-select" value={scatterGroup} onChange={e => setScatterGroup(e.target.value)}>
-                    <option value="">None</option>
-                    {strCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  <label className="adv-label">X Axis</label>
+                  <select className="adv-select" value={scatterX} onChange={e => setScatterX(e.target.value)}>
+                    {numCols.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-              )}
-            </div>
-            <canvas ref={scatterRef} style={{ maxHeight: 300 }} />
-          </>
-        )}
+                <div className="axis-picker">
+                  <label className="adv-label">Y Axis</label>
+                  <select className="adv-select" value={scatterY} onChange={e => setScatterY(e.target.value)}>
+                    {numCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                {strCols.length > 0 && (
+                  <div className="axis-picker">
+                    <label className="adv-label">Color by</label>
+                    <select className="adv-select" value={scatterGroup} onChange={e => setScatterGroup(e.target.value)}>
+                      <option value="">None</option>
+                      {strCols.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <canvas ref={scatterRef} style={{ maxHeight: 300 }} />
+            </>
+          )}
 
-        {/* Box plot */}
-        {activeChart === 'boxplot' && (
-          <>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
-              Shows Q1→Q3 interquartile range (stacked bars) with median and mean line · Dashed = Mean
-            </div>
-            <canvas ref={boxRef} style={{ maxHeight: 300 }} />
-          </>
-        )}
+          {/* Box plot */}
+          {activeChart === 'boxplot' && (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
+                Shows Q1→Q3 interquartile range (stacked bars) with median and mean line · Dashed = Mean
+              </div>
+              <canvas ref={boxRef} style={{ maxHeight: 300 }} />
+            </>
+          )}
 
-        {/* Correlation */}
-        {activeChart === 'correlation' && (
-          <>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
-              Bubble size = correlation strength · Cyan = positive · Red = negative
-            </div>
-            <canvas ref={corrRef} style={{ maxHeight: 300 }} />
-          </>
-        )}
-      </div>
+          {/* Correlation */}
+          {activeChart === 'correlation' && (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
+                Bubble size = correlation strength · Cyan = positive · Red = negative
+              </div>
+              <canvas ref={corrRef} style={{ maxHeight: 300 }} />
+            </>
+          )}
+        </div>
+      )}
 
       {/* Column profiles */}
       <div style={{ marginTop: 20 }}>

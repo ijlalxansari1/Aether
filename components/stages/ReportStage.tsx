@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Chart, registerables } from 'chart.js';
 import { ColumnType, DataRow } from '@/lib/types';
 import { profileColumn, fmtNum, calcDQScore, exportCSV, freqMap, completenessPercent } from '@/lib/dataUtils';
+import { getDb, loadDataToTable, exportToParquet } from '@/lib/duckdbUtils';
 
 Chart.register(...registerables);
 
@@ -22,6 +23,8 @@ export default function ReportStage({ headers, types, rows, rawRows, filename, a
   const [reportAuthor, setReportAuthor] = useState('Aether Analytics');
   const [shareMsg, setShareMsg] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [showModal, setShowModal] = useState<string | null>(null);
 
   const barRef   = useRef<HTMLCanvasElement>(null);
   const pieRef   = useRef<HTMLCanvasElement>(null);
@@ -105,6 +108,25 @@ export default function ReportStage({ headers, types, rows, rawRows, filename, a
   }, [rows, numCols.join(',')]);
 
   // ─── Export Functions ──────────────────────────────────────────────────────
+
+  async function handleExportParquet() {
+    setIsExporting(true);
+    try {
+      const db = await getDb();
+      await loadDataToTable(db, 'dataset_export', rows);
+      const buffer = await exportToParquet(db, 'dataset_export');
+      
+      const blob = new Blob([new Uint8Array(buffer)], { type: 'application/vnd.apache.parquet' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${filename.replace(/\.[^.]+$/, '')}_transformed.parquet`;
+      a.click();
+    } catch(err: any) {
+      alert("Parquet Export Failed: " + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  }
 
   function handleExportCSV() {
     exportCSV(headers, rows, filename.replace(/\.[^.]+$/, '_cleaned.csv'));
@@ -278,15 +300,67 @@ ${rawRows.length - rows.length} rows removed during cleaning. ${nullTotal} nulls
           ) : (
             <div>
               <h1 className="stage-title" style={{ fontSize: 22 }}>
-                <span>📋</span> {reportTitle}
-                <button className="edit-btn" onClick={() => setIsEditing(true)} title="Edit report info">✏️</button>
+                <span>🚀</span> Final Destinations & Report
               </h1>
-              <p className="stage-sub">by {reportAuthor} · {ingestedAt?.toLocaleDateString() ?? 'today'} · Source: <strong>{filename}</strong></p>
+              <p className="stage-sub">Push data to Data Warehouses, export to Parquet, and view final Data Dictionary.</p>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Export buttons */}
+      {/* ── Destinations Hub ── */}
+      <div className="report-section-label">🌐 Enterprise Destinations (Load)</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+        <button className="btn btn-secondary" style={{ flexDirection: 'column', padding: '24px', background: 'var(--card-bg)' }} onClick={handleExportParquet} disabled={isExporting}>
+          <span style={{ fontSize: '32px', marginBottom: '12px' }}>🦆</span> 
+          <span style={{ fontWeight: 700 }}>{isExporting ? 'Exporting...' : 'Export to Parquet'}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Native Browser WASM</span>
+        </button>
+        <button className="btn btn-secondary" style={{ flexDirection: 'column', padding: '24px', background: 'var(--card-bg)' }} onClick={() => setShowModal('snowflake')}>
+          <span style={{ fontSize: '32px', marginBottom: '12px' }}>❄️</span> 
+          <span style={{ fontWeight: 700 }}>Push to Snowflake</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Data Warehouse</span>
+        </button>
+        <button className="btn btn-secondary" style={{ flexDirection: 'column', padding: '24px', background: 'var(--card-bg)' }} onClick={() => setShowModal('bigquery')}>
+          <span style={{ fontSize: '32px', marginBottom: '12px' }}>🔍</span> 
+          <span style={{ fontWeight: 700 }}>Push to BigQuery</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Data Warehouse</span>
+        </button>
+        <button className="btn btn-secondary" style={{ flexDirection: 'column', padding: '24px', background: 'var(--card-bg)' }} onClick={handleExportMarkdown}>
+          <span style={{ fontSize: '32px', marginBottom: '12px' }}>📝</span> 
+          <span style={{ fontWeight: 700 }}>Data Dictionary</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Download Markdown</span>
+        </button>
+      </div>
+
+      {/* Connection Modals */}
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="card" style={{ minWidth: 400 }}>
+            <h2 style={{ marginBottom: 16, textTransform: 'capitalize' }}>Push to {showModal}</h2>
+            <input type="text" placeholder="Target Database / Dataset" className="search-input" style={{ width: '100%', marginBottom: 12 }} />
+            <input type="text" placeholder="Target Table Name" className="search-input" style={{ width: '100%', marginBottom: 12 }} />
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Write Mode</label>
+              <select className="search-input" style={{ width: '100%', marginTop: '4px' }}>
+                <option>Append (Add rows)</option>
+                <option>Overwrite (Replace table)</option>
+              </select>
+            </div>
+            <div className="flex gap-8" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowModal(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => { alert('Mock Deploy Successful!'); setShowModal(null); }}>Start Deploy</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export buttons row */}
+      <div className="flex-between" style={{ marginBottom: 16 }}>
+        <h1 className="stage-title" style={{ fontSize: 22 }}>
+          <span>📋</span> {reportTitle}
+          <button className="edit-btn" onClick={() => setIsEditing(true)} title="Edit report info">✏️</button>
+        </h1>
         <div className="export-actions">
           <button className="export-btn" onClick={handlePrintPDF} title="Print / Save as PDF">
             <span>🖨</span> Print / PDF

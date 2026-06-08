@@ -19,15 +19,18 @@ interface DashboardStageProps {
 
 export default function DashboardStage({ headers, types, rows, filename, onProceed }: DashboardStageProps) {
   const [mainType, setMainType] = useState<ChartType>('bar');
-  const mainRef  = useRef<HTMLCanvasElement>(null);
-  const pieRef   = useRef<HTMLCanvasElement>(null);
+  const mainRef = useRef<HTMLCanvasElement>(null);
+  const pieRef = useRef<HTMLCanvasElement>(null);
   const trendRef = useRef<HTMLCanvasElement>(null);
-  const mainChart  = useRef<Chart | null>(null);
-  const pieChart   = useRef<Chart | null>(null);
+  const mainChart = useRef<Chart | null>(null);
+  const pieChart = useRef<Chart | null>(null);
   const trendChart = useRef<Chart | null>(null);
 
   const numCols = headers.filter(h => types[h] === 'number');
   const strCols = headers.filter(h => types[h] === 'string');
+
+  const [selectedX, setSelectedX] = useState<string>(strCols[0] || '');
+  const [selectedY, setSelectedY] = useState<string>(numCols[0] || '');
 
   // KPIs
   const kpis = numCols.slice(0, 4).map(h => {
@@ -40,9 +43,9 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
 
   // Main chart
   useEffect(() => {
-    if (!mainRef.current || !strCols[0] || !numCols[0]) return;
+    if (!mainRef.current || !selectedX || !selectedY) return;
     const freq: Record<string, number> = {};
-    rows.forEach(r => { const k = String(r[strCols[0]]); freq[k] = (freq[k] || 0) + (Number(r[numCols[0]]) || 0); });
+    rows.forEach(r => { const k = String(r[selectedX]); freq[k] = (freq[k] || 0) + (Number(r[selectedY]) || 0); });
     const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const labels = sorted.map(([k]) => k);
     const data = sorted.map(([, v]) => parseFloat(v.toFixed(1)));
@@ -54,7 +57,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
       data: {
         labels,
         datasets: [{
-          label: numCols[0],
+          label: selectedY,
           data,
           backgroundColor: mainType === 'line' ? 'rgba(0,212,255,0.1)' : palette,
           borderColor: mainType === 'line' ? 'rgba(0,212,255,0.9)' : palette,
@@ -69,7 +72,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
       options: { ...chartBase(), plugins: { legend: { display: false } } },
     });
     return () => { mainChart.current?.destroy(); };
-  }, [mainType, rows, strCols[0], numCols[0]]);
+  }, [mainType, rows, selectedX, selectedY]);
 
   // Pie / donut chart
   useEffect(() => {
@@ -136,6 +139,24 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     a.click();
   }
 
+  async function exportPDF() {
+    const stageContent = document.querySelector('.stage-content') as HTMLElement;
+    if (!stageContent) return;
+
+    const html2canvas = (await import('html2canvas')).default;
+    const { jsPDF } = await import('jspdf');
+
+    const canvas = await html2canvas(stageContent, { scale: 2, backgroundColor: '#0a0a0f' });
+    const imgData = canvas.toDataURL('image/png');
+
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    pdf.save('aether_dashboard.pdf');
+  }
+
   return (
     <div className="stage-content">
       <div className="stage-header flex-between">
@@ -145,6 +166,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
         </div>
         <div className="flex gap-8">
           <button className="btn btn-secondary" onClick={exportReport}>⬇ Quick Export</button>
+          <button className="btn btn-secondary" onClick={exportPDF}>📄 Export PDF</button>
           <button className="btn btn-primary" onClick={onProceed}>📋 BI Report →</button>
         </div>
       </div>
@@ -166,13 +188,24 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
       <div className="two-col" style={{ marginTop: 20 }}>
         <div className="card chart-card">
           <div className="flex-between" style={{ marginBottom: 14 }}>
-            <div className="card-label" style={{ margin: 0 }}>Main Chart</div>
-            <div className="chart-tabs">
-              {(['bar', 'line', 'radar'] as ChartType[]).map(t => (
-                <button key={t} className={`chart-tab ${mainType === t ? 'active' : ''}`} onClick={() => setMainType(t)}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
+            <div className="card-label" style={{ margin: 0 }}>Custom Chart</div>
+
+            <div className="flex gap-8" style={{ alignItems: 'center' }}>
+              <select className="input" value={selectedX} onChange={e => setSelectedX(e.target.value)} style={{ padding: '4px 8px', width: 'auto' }}>
+                {strCols.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <span style={{ color: '#8892b0' }}>vs</span>
+              <select className="input" value={selectedY} onChange={e => setSelectedY(e.target.value)} style={{ padding: '4px 8px', width: 'auto' }}>
+                {numCols.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+
+              <div className="chart-tabs" style={{ marginLeft: 8 }}>
+                {(['bar', 'line', 'radar'] as ChartType[]).map(t => (
+                  <button key={t} className={`chart-tab ${mainType === t ? 'active' : ''}`} onClick={() => setMainType(t)}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <canvas ref={mainRef} style={{ maxHeight: 260 }} />
