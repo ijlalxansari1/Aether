@@ -133,10 +133,10 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
       },
       options: {
         ...chartBase(),
-        plugins: { legend: { position: 'top', labels: { color: '#8892b0', font: { size: 11 } } } },
+        plugins: { legend: { position: 'top', labels: { color: 'var(--text-secondary)', font: { size: 11 } } } },
         scales: {
-          x: { title: { display: true, text: scatterX, color: '#8892b0' }, ticks: { color: '#8892b0' }, grid: { color: 'rgba(255,255,255,0.04)' } },
-          y: { title: { display: true, text: scatterY, color: '#8892b0' }, ticks: { color: '#8892b0' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+          x: { title: { display: true, text: scatterX, color: 'var(--text-secondary)' }, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' } },
+          y: { title: { display: true, text: scatterY, color: 'var(--text-secondary)' }, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' } },
         },
       },
     });
@@ -163,7 +163,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
       },
       options: {
         ...chartBase(),
-        plugins: { legend: { position: 'top', labels: { color: '#8892b0', font: { size: 10 } } } },
+        plugins: { legend: { position: 'top', labels: { color: 'var(--text-secondary)', font: { size: 10 } } } },
       },
     });
     return () => { boxChart.current?.destroy(); };
@@ -194,8 +194,8 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
       options: {
         ...chartBase(),
         scales: {
-          x: { ticks: { callback: (v) => cols[v as number] ?? '', color: '#8892b0' }, grid: { color: 'rgba(255,255,255,0.04)' }, min: -0.5, max: cols.length - 0.5 },
-          y: { ticks: { callback: (v) => cols[v as number] ?? '', color: '#8892b0' }, grid: { color: 'rgba(255,255,255,0.04)' }, min: -0.5, max: cols.length - 0.5 },
+          x: { ticks: { callback: (v) => cols[v as number] ?? '', color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' }, min: -0.5, max: cols.length - 0.5 },
+          y: { ticks: { callback: (v) => cols[v as number] ?? '', color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' }, min: -0.5, max: cols.length - 0.5 },
         },
         plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => (c.raw as { label: string }).label } } },
       },
@@ -232,7 +232,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
       {mainTab === 'sql' && (
         <div className="card chart-card">
           <div className="flex-between" style={{ marginBottom: 10 }}>
-            <h3 style={{ fontSize: '18px', color: '#fff' }}>DuckDB SQL Editor</h3>
+            <h3 style={{ fontSize: '18px', color: 'var(--text-primary)' }}>DuckDB SQL Editor</h3>
             {!dbReady ? (
               <span style={{ color: 'var(--amber)' }}>⏳ Initializing DuckDB WASM...</span>
             ) : (
@@ -242,7 +242,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
           
           <textarea
             className="paste-area"
-            style={{ fontFamily: 'monospace', height: '150px', fontSize: '16px', background: '#0a0a10', color: '#00d4ff', borderColor: 'var(--glass-border)' }}
+            style={{ fontFamily: 'monospace', height: '150px', fontSize: '14px', background: 'var(--bg-surface)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}
             value={sqlQuery}
             onChange={(e) => setSqlQuery(e.target.value)}
             disabled={!dbReady || isExecuting}
@@ -389,12 +389,12 @@ function chartBase() {
     responsive: true,
     animation: { duration: 500 },
     plugins: {
-      tooltip: { backgroundColor: 'rgba(8,8,24,0.95)', titleColor: '#f0f4ff', bodyColor: '#8892b0', borderColor: 'rgba(0,212,255,0.2)', borderWidth: 1 },
-      legend: { labels: { color: '#8892b0', font: { size: 11 } } },
+      tooltip: { backgroundColor: 'var(--bg-card)', titleColor: 'var(--text-primary)', bodyColor: 'var(--text-secondary)', borderColor: 'var(--border)', borderWidth: 1 },
+      legend: { labels: { color: 'var(--text-secondary)', font: { size: 11 } } },
     },
     scales: {
-      x: { ticks: { color: '#8892b0', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-      y: { ticks: { color: '#8892b0', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+      x: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--border)' } },
+      y: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--border)' } },
     },
   };
 }

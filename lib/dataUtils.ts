@@ -27,6 +27,7 @@ export function profileColumn(col: string, type: ColumnType, rows: DataRow[]): C
 
   if (type === 'number') {
     const nums = vals.map(v => Number(v));
+    if (!nums.length) return { name: col, type, count: 0, nulls, mean: 0, median: 0, std: 0, min: 0, max: 0 };
     const sum = nums.reduce((a, b) => a + b, 0);
     const mean = sum / count;
     const sorted = [...nums].sort((a, b) => a - b);
@@ -108,6 +109,34 @@ export function applyCleanOp(op: string, rows: DataRow[], headers: string[], typ
 
   if (op === 'trim_spaces') {
     data.forEach(r => headers.forEach(h => { if (typeof r[h] === 'string') r[h] = (r[h] as string).trim(); }));
+  }
+
+  if (op === 'normalize') {
+    headers.filter(h => types[h] === 'number').forEach(h => {
+      const vals = data.map(r => Number(r[h])).filter(v => !isNaN(v));
+      if (!vals.length) return;
+      const min = Math.min(...vals), max = Math.max(...vals);
+      if (max > min) {
+        data.forEach(r => { if (typeof r[h] === 'number') r[h] = ((r[h] as number) - min) / (max - min); });
+      }
+    });
+  }
+
+  if (op === 'fix_types') {
+    headers.forEach(h => {
+      const type = types[h];
+      data.forEach(r => {
+        if (r[h] === null || r[h] === undefined || r[h] === '') return;
+        if (type === 'number' && typeof r[h] !== 'number') {
+          const parsed = Number(r[h]);
+          r[h] = isNaN(parsed) ? null : parsed;
+        } else if (type === 'boolean' && typeof r[h] !== 'boolean') {
+          r[h] = String(r[h]).toLowerCase() === 'true';
+        } else if (type === 'string' && typeof r[h] !== 'string') {
+          r[h] = String(r[h]);
+        }
+      });
+    });
   }
 
   return data;

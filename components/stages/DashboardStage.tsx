@@ -85,9 +85,9 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
       type: 'doughnut',
       data: {
         labels: sorted.map(([k]) => k),
-        datasets: [{ data: sorted.map(([, v]) => v), backgroundColor: sorted.map((_, i) => `hsla(${190 + i * 40},70%,55%,0.8)`), borderColor: 'rgba(255,255,255,0.05)', borderWidth: 2, hoverOffset: 8 }],
+        datasets: [{ data: sorted.map(([, v]) => v), backgroundColor: sorted.map((_, i) => `hsla(${190 + i * 40},70%,55%,0.8)`), borderColor: 'var(--border)', borderWidth: 2, hoverOffset: 8 }],
       },
-      options: { ...chartBase(), cutout: '65%', plugins: { legend: { position: 'right', labels: { color: '#8892b0', font: { size: 11 } } } } },
+      options: { ...chartBase(), cutout: '65%', plugins: { legend: { position: 'right', labels: { color: 'var(--text-secondary)', font: { size: 11 } } } } },
     });
     return () => { pieChart.current?.destroy(); };
   }, [rows, strCols[0]]);
@@ -146,7 +146,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     const html2canvas = (await import('html2canvas')).default;
     const { jsPDF } = await import('jspdf');
 
-    const canvas = await html2canvas(stageContent, { scale: 2, backgroundColor: '#0a0a0f' });
+    const canvas = await html2canvas(stageContent, { scale: 2, backgroundColor: '#f8fafc' });
     const imgData = canvas.toDataURL('image/png');
 
     const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
@@ -230,12 +230,12 @@ function chartBase() {
     responsive: true,
     animation: { duration: 500 },
     plugins: {
-      tooltip: { backgroundColor: 'rgba(8,8,24,0.95)', titleColor: '#f0f4ff', bodyColor: '#8892b0', borderColor: 'rgba(0,212,255,0.2)', borderWidth: 1 },
-      legend: { labels: { color: '#8892b0', font: { size: 11 } } },
+      tooltip: { backgroundColor: 'var(--bg-card)', titleColor: 'var(--text-primary)', bodyColor: 'var(--text-secondary)', borderColor: 'var(--border)', borderWidth: 1 },
+      legend: { labels: { color: 'var(--text-secondary)', font: { size: 11 } } },
     },
     scales: {
-      x: { ticks: { color: '#8892b0', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-      y: { ticks: { color: '#8892b0', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+      x: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--border)' } },
+      y: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--border)' } },
     },
   };
 }
