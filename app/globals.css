@@ -43,7 +43,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-image:
-    radial-gradient(ellipse 60% 60% at 50% -10%, rgba(139, 92, 246, 0.08) 0%, transparent 70%), rgba(181, 58, 255, 0.15) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 60% at 50% -10%, rgba(139, 92, 246, 0.08) 0%, transparent 70%),
     radial-gradient(ellipse 50% 50% at 80% 90%, rgba(14, 165, 233, 0.08) 0%, transparent 60%);
 }
 ::-webkit-scrollbar         { width: 6px; height: 6px; }
