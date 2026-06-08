@@ -36,7 +36,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     const change = parseFloat((Math.random() * 20 - 10).toFixed(1));
     return { label: h.replace(/_/g, ' ').toUpperCase(), value: fmtNum(avg), change, up: change >= 0 };
   });
-  if (!kpis.length) kpis.push({ label: 'TOTAL ROWS', value: rows.length, change: 0, up: true });
+  if (!kpis.length) kpis.push({ label: 'TOTAL ROWS', value: fmtNum(rows.length), change: 0, up: true });
 
   // Main chart
   useEffect(() => {

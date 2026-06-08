@@ -35,10 +35,10 @@ export default function IngestStage({ onIngest, logs, hasData, rowCount, colCoun
     } else {
       // dynamic import for browser only
       import('papaparse').then(({ default: Papa }) => {
-        Papa.parse(file, {
+        Papa.parse(file as any, {
           header: true, skipEmptyLines: true, dynamicTyping: true,
-          complete: (r: { meta: { fields: string[] }; data: DataRow[] }) => {
-            onIngest(r.meta.fields, r.data, file.name);
+          complete: (r: any) => {
+            onIngest(r.meta.fields || [], r.data, file.name);
           },
         });
       });
