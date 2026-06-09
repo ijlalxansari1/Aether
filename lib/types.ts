@@ -11,6 +11,15 @@ export interface DataSchema {
   uniqueCount: number;
 }
 
+export interface IngestedDataset {
+  id: string;
+  name: string;
+  sourceType: 'csv' | 'api' | 'pdf' | 'db';
+  headers: string[];
+  rows: DataRow[];
+  ingestedAt: Date;
+}
+
 export interface IngestResult {
   headers: string[];
   rows: DataRow[];
@@ -57,7 +66,9 @@ export interface KPI {
   up: boolean;
 }
 
-export type Stage = 'ingest' | 'store' | 'clean' | 'analyze' | 'story' | 'dashboard' | 'report';
+export type Stage = 'ingest' | 'store' | 'clean' | 'path-selection' | 'ethics' | 'analyze' | 'story' | 'dashboard' | 'report' | 'model' | 'evaluate' | 'deploy';
+
+export type UserPath = 'analyst' | 'bi' | 'ds' | null;
 
 export interface BoxPlotData {
   col: string;
@@ -79,6 +90,8 @@ export interface ReportConfig {
 
 export interface AetherState {
   stage: Stage;
+  userPath: UserPath;
+  datasets: IngestedDataset[];
   headers: string[];
   schema: DataSchema[];
   types: Record<string, ColumnType>;
@@ -86,5 +99,5 @@ export interface AetherState {
   cleaned: DataRow[];
   filename: string;
   ingestedAt: Date | null;
-  cleanOpsApplied: Set<string>;
+  cleanOpsApplied: string[];
 }

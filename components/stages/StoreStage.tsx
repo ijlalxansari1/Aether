@@ -3,21 +3,92 @@
 import { useState, useMemo } from 'react';
 import { DataRow, DataSchema } from '@/lib/types';
 import { exportCSV } from '@/lib/dataUtils';
+import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
+import { useEffect } from 'react';
 
 const PAGE_SIZE = 20;
 
 interface StoreStageProps {
+  datasets: import('@/lib/types').IngestedDataset[];
   headers: string[];
   schema: DataSchema[];
   rows: DataRow[];
   filename: string;
   ingestedAt: Date | null;
   onProceed: () => void;
+  onUpdateRows: (newHeaders: string[], newRows: DataRow[]) => void;
 }
 
 type SortDir = 'asc' | 'desc' | null;
 
-export default function StoreStage({ headers, schema, rows, filename, ingestedAt, onProceed }: StoreStageProps) {
+export default function StoreStage({ datasets, headers, schema, rows, filename, ingestedAt, onProceed, onUpdateRows }: StoreStageProps) {
+  const [dbReady, setDbReady] = useState(false);
+  const [sqlQuery, setSqlQuery] = useState('SELECT * FROM t1;');
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [sqlError, setSqlError] = useState('');
+  const [mergeMode, setMergeMode] = useState<'visual' | 'sql'>('visual');
+  const [joinType, setJoinType] = useState('JOIN');
+  const [tableA, setTableA] = useState('t1');
+  const [tableB, setTableB] = useState('t2');
+  const [colA, setColA] = useState('');
+  const [colB, setColB] = useState('');
+
+  useEffect(() => {
+    async function init() {
+      try {
+        const db = await getDb();
+        // Load all datasets into DuckDB
+        for (let i = 0; i < datasets.length; i++) {
+          await loadDataToTable(db, `t${i+1}`, datasets[i].rows);
+        }
+        setDbReady(true);
+        if (datasets.length > 1) {
+          setSqlQuery(`SELECT *\nFROM t1\nJOIN t2 ON t1.id = t2.id;`);
+        }
+      } catch (err: any) {
+        console.error(err);
+      }
+    }
+    if (datasets.length > 0) init();
+  }, [datasets]);
+
+  // Try to find common columns for auto-join
+  useEffect(() => {
+    if (datasets.length < 2) return;
+    const dsA = datasets[parseInt(tableA.replace('t','')) - 1];
+    const dsB = datasets[parseInt(tableB.replace('t','')) - 1];
+    if (dsA && dsB) {
+      if (!colA) setColA(dsA.headers[0]);
+      if (!colB) setColB(dsB.headers[0]);
+    }
+  }, [tableA, tableB, datasets, colA, colB]);
+
+  async function handleRunSQL() {
+    let finalQuery = sqlQuery;
+    if (mergeMode === 'visual') {
+      if (joinType === 'UNION ALL') {
+        finalQuery = `SELECT * FROM ${tableA} UNION ALL SELECT * FROM ${tableB};`;
+      } else {
+        finalQuery = `SELECT * FROM ${tableA} ${joinType} ${tableB} ON ${tableA}.${colA} = ${tableB}.${colB};`;
+      }
+      setSqlQuery(finalQuery); // Sync it to the text area
+    }
+    if (!dbReady) return;
+    setIsExecuting(true);
+    setSqlError('');
+    try {
+      const db = await getDb();
+      const results = await executeQuery(db, sqlQuery);
+      if (results.length > 0) {
+        onUpdateRows(Object.keys(results[0]), results);
+      }
+    } catch (err: any) {
+      setSqlError(err.message);
+    } finally {
+      setIsExecuting(false);
+    }
+  }
+
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sortCol, setSortCol] = useState<string | null>(null);
@@ -79,6 +150,31 @@ export default function StoreStage({ headers, schema, rows, filename, ingestedAt
 
   return (
     <div className="stage-content">
+      {datasets.length > 1 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="flex-between" style={{ marginBottom: 12 }}>
+            <div className="card-label" style={{ margin: 0 }}>Combine Multiple Datasets</div>
+            {!dbReady ? <span style={{color: 'var(--amber)'}}>⏳ Loading tables...</span> : <span style={{color: 'var(--emerald)'}}>✅ Tables Ready: {datasets.map((d,i) => `t${i+1}`).join(', ')}</span>}
+          </div>
+          <p style={{fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16}}>
+            You have loaded {datasets.length} datasets. Use DuckDB SQL to JOIN or UNION them into a single primary table before continuing.
+          </p>
+          <textarea
+            className="paste-area"
+            style={{ fontFamily: 'monospace', height: '80px', fontSize: '14px', background: 'var(--bg-surface)', color: 'var(--text-primary)', borderColor: 'var(--border)', width: '100%' }}
+            value={sqlQuery}
+            onChange={(e) => setSqlQuery(e.target.value)}
+            disabled={!dbReady || isExecuting}
+          />
+          {sqlError && <div style={{ color: 'var(--rose)', fontSize: 13, marginTop: 8 }}>{sqlError}</div>}
+          <div className="flex gap-8" style={{ marginTop: 12 }}>
+            <button className="btn btn-secondary" onClick={handleRunSQL} disabled={!dbReady || isExecuting}>
+              {isExecuting ? '⏳ Executing...' : '▶ Execute & Update Table'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="stage-header flex-between">
         <div>
           <h1 className="stage-title"><span>🗄</span> Data Store</h1>

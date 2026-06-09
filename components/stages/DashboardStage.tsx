@@ -146,7 +146,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     const html2canvas = (await import('html2canvas')).default;
     const { jsPDF } = await import('jspdf');
 
-    const canvas = await html2canvas(stageContent, { scale: 2, backgroundColor: '#f8fafc' });
+    const canvas = await html2canvas(stageContent, { scale: 2, backgroundColor: '#000000' });
     const imgData = canvas.toDataURL('image/png');
 
     const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });

@@ -6,19 +6,25 @@ import PipelineBar from '@/components/PipelineBar';
 import IngestStage from '@/components/stages/IngestStage';
 import StoreStage from '@/components/stages/StoreStage';
 import CleanStage from '@/components/stages/CleanStage';
+import EthicsStage from '@/components/stages/EthicsStage';
 import AnalyzeStage from '@/components/stages/AnalyzeStage';
 import StoryStage from '@/components/stages/StoryStage';
 import DashboardStage from '@/components/stages/DashboardStage';
 import ReportStage from '@/components/stages/ReportStage';
+import GlobalSidebar from '@/components/GlobalSidebar';
+import AIAssistant from '@/components/AIAssistant';
 import LandingHero from '@/components/LandingHero';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { Stage, DataRow, DataSchema } from '@/lib/types';
+import PathSelectionStage from '@/components/stages/PathSelectionStage';
+import { Stage, UserPath, DataRow, DataSchema } from '@/lib/types';
 import { inferTypes, detectIssues, applyCleanOp, profileColumn, findReplace, dropColumn } from '@/lib/dataUtils';
 
 const CLEANING_ALL = ['remove_dups', 'fill_nulls', 'cap_outliers', 'trim_spaces', 'normalize', 'fix_types'];
 
 export default function AetherApp() {
   const [stage, setStage] = useState<Stage>('ingest');
+  const [userPath, setUserPath] = useState<UserPath>(null);
+  const [datasets, setDatasets] = useState<any[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<DataRow[]>([]);
   const [cleanedRows, setCleanedRows] = useState<DataRow[]>([]);
@@ -64,7 +70,7 @@ export default function AetherApp() {
     if (rawRows.length > 0) {
       localforage.setItem('aether_workspace', {
         headers, types, schema, filename, ingestedAt,
-        stage, appliedOps: Array.from(appliedOps),
+        stage, userPath, appliedOps: Array.from(appliedOps),
         rawRows, cleanedRows
       });
     }
@@ -79,6 +85,7 @@ export default function AetherApp() {
     setFilename(data.filename);
     setIngestedAt(data.ingestedAt);
     setStage(data.stage);
+    if (data.userPath) setUserPath(data.userPath);
     setAppliedOps(new Set(data.appliedOps));
     setRawRows(data.rawRows);
     setCleanedRows(data.cleanedRows);
@@ -136,30 +143,40 @@ export default function AetherApp() {
   }
 
   // ── Ingest ──────────────────────────────────────────────────────────────────
-  const handleIngest = useCallback((hdrs: string[], rows: DataRow[], fname: string) => {
-    const t = inferTypes(hdrs, rows);
-    const sch: DataSchema[] = hdrs.map(h => {
-      const p = profileColumn(h, t[h], rows);
-      return { name: h, type: t[h], nullCount: p.nulls, uniqueCount: p.unique ?? rows.length };
+  
+  const handleIngest = useCallback((hdrs: string[], rows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv') => {
+    const ds = { id: Math.random().toString(36).substr(2, 9), name: fname, headers: hdrs, rows, sourceType: type, ingestedAt: new Date() };
+    
+    setDatasets(prev => {
+      const next = [...prev, ds];
+      
+      // If it's the first dataset, we also set it as the primary rawRows for now to maintain backward compatibility with downstream stages
+      // until they are updated to use DuckDB JOINs.
+      if (next.length === 1) {
+        const t = inferTypes(hdrs, rows);
+        const sch = hdrs.map(h => {
+          const p = profileColumn(h, t[h], rows);
+          return { name: h, type: t[h], nullCount: p.nulls, uniqueCount: p.unique ?? rows.length };
+        });
+        setHeaders(hdrs);
+        setRawRows(rows);
+        setCleanedRows(JSON.parse(JSON.stringify(rows)));
+        setTypes(t);
+        setSchema(sch);
+        setFilename(fname);
+        setIngestedAt(new Date());
+      }
+      return next;
     });
-    setHeaders(hdrs);
-    setRawRows(rows);
-    setCleanedRows(JSON.parse(JSON.stringify(rows)));
-    setTypes(t);
-    setSchema(sch);
-    setFilename(fname);
-    setIngestedAt(new Date());
-    setAppliedOps(new Set());
-    setLogs([
-      `» File: ${fname}`,
-      `» Rows detected: ${rows.length}`,
-      `» Columns: ${hdrs.length} → [${hdrs.join(', ')}]`,
-      `» Types inferred: ${hdrs.map(h => `${h}:${t[h]}`).join(' | ')}`,
-      `» ✅ Ingestion complete — ready for storage.`,
+
+    setLogs(prev => [
+      ...prev,
+      `» Loaded [${type.toUpperCase()}] ${fname} (${rows.length} rows, ${hdrs.length} cols)`
     ]);
     setShowHero(false);
-    showToast(`✓ Ingested ${rows.length} rows`, 'success');
+    showToast(`✓ Loaded ${fname}`, 'success');
   }, []);
+
 
   // ── Clean Ops ────────────────────────────────────────────────────────────────
   function handleApplyOp(id: string) {
@@ -216,15 +233,31 @@ export default function AetherApp() {
   const issues = useMemo(() => detectIssues(headers, rawRows, types), [headers, rawRows, types]);
 
   return (
-    <div className="app-root">
+    <div className="app-layout">
+      {(!showHero || rawRows.length > 0) && <GlobalSidebar />}
+      <div className="app-root">
       {/* Topbar */}
       <header className="topbar">
-        <div className="logo-wrap">
-          <div className="logo-icon">✦</div>
+        <div className="logo-wrap" style={{ visibility: showHero && rawRows.length === 0 ? 'visible' : 'hidden', width: '200px' }}>
+          <img src="/logo.svg" alt="AETHER Logo" style={{ width: '24px', height: '24px' }} />
           <span className="logo-text">Aether</span>
-          <span className="logo-tagline">End-to-End DataOps</span>
         </div>
-        <div className="topbar-right">
+        
+        {(!showHero || rawRows.length > 0) && (
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
+              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+              <input 
+                type="text" 
+                placeholder="Search workspaces, data, AI..." 
+                className="search-input" 
+                style={{ width: '100%', paddingLeft: '36px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px' }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="topbar-right" style={{ width: '200px', justifyContent: 'flex-end' }}>
           {user ? (
             <div className="flex gap-8" style={{ alignItems: 'center', marginRight: 16 }}>
               {rawRows.length > 0 && (
@@ -254,6 +287,7 @@ export default function AetherApp() {
           {/* Pipeline */}
           <PipelineBar
             current={stage}
+            userPath={userPath}
             hasData={rawRows.length > 0}
             onStageClick={setStage}
           />
@@ -264,21 +298,22 @@ export default function AetherApp() {
           <IngestStage
             onIngest={handleIngest}
             logs={logs}
-            hasData={rawRows.length > 0}
-            rowCount={rawRows.length}
-            colCount={headers.length}
+            hasData={datasets.length > 0}
+            datasets={datasets}
             onProceed={() => setStage('store')}
             onError={msg => showToast(msg, 'error')}
           />
         )}
         {stage === 'store' && (
           <StoreStage
+            datasets={datasets}
             headers={headers}
             schema={schema}
             rows={cleanedRows}
             filename={filename}
             ingestedAt={ingestedAt}
             onProceed={() => setStage('clean')}
+            onUpdateRows={handleUpdateRows}
           />
         )}
         {stage === 'clean' && (
@@ -293,6 +328,25 @@ export default function AetherApp() {
             onApplyAll={handleApplyAll}
             onFindReplace={handleFindReplace}
             onDropColumn={handleDropColumn}
+            onProceed={() => setStage('path-selection')}
+          />
+        )}
+        
+        {stage === 'path-selection' && (
+          <PathSelectionStage 
+            onSelectPath={(path) => {
+              setUserPath(path);
+              if (path === 'analyst') setStage('analyze');
+              else if (path === 'bi') setStage('dashboard');
+              else if (path === 'ds') setStage('model');
+            }}
+          />
+        )}
+        {stage === 'ethics' && (
+          <EthicsStage
+            headers={headers}
+            types={types}
+            rows={cleanedRows}
             onProceed={() => setStage('analyze')}
           />
         )}
@@ -371,6 +425,10 @@ export default function AetherApp() {
           </div>
         </div>
       )}
+      {/* AI Assistant Panel */}
+      <AIAssistant currentStage={stage} rowCount={cleanedRows.length || rawRows.length} />
+
+      </div>
     </div>
   );
 }
