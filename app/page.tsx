@@ -436,7 +436,7 @@ export default function AetherApp() {
                 rows={cleanedRows}
                 rawRows={rawRows}
                 filename={filename}
-                appliedOps={appliedOps}
+                appliedOps={Array.from(appliedOps)}
                 ingestedAt={ingestedAt}
               />
             )}
