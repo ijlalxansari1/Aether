@@ -437,7 +437,7 @@ export default function AetherApp() {
                 rawRows={rawRows}
                 filename={filename}
                 appliedOps={Array.from(appliedOps)}
-                ingestedAt={ingestedAt}
+                ingestedAt={ingestedAt ? ingestedAt.toISOString() : null}
               />
             )}
             {stage === 'model' && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import { ColProfile, ColumnType, DataRow } from '@/lib/types';
 import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest } from '@/lib/dataUtils';
 import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
@@ -215,7 +215,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                   <div />
                   {corrCols.map(c => <div key={c} style={{ textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>{c}</div>)}
                   {corrCols.map(c1 => (
-                    <React.Fragment key={c1}>
+                    <Fragment key={c1}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', paddingRight: '8px' }}>{c1}</div>
                       {corrCols.map(c2 => {
                         const val = corrData.find(r => r.name === c1)?.[c2] ?? 0;
@@ -228,7 +228,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                           </div>
                         );
                       })}
-                    </React.Fragment>
+                    </Fragment>
                   ))}
                 </div>
               ) : (

@@ -331,7 +331,7 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
             }
           }
 
-          onIngest(hdrs, r.data, safeName, 'csv', isStreaming);
+          onIngest(hdrs, r.data, safeName, 'csv');
         }
       });
     });
