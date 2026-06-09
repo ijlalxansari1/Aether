@@ -10,6 +10,21 @@ export function inferType(values: unknown[]): ColumnType {
   return 'string';
 }
 
+export function isPII(colName: string, values: unknown[]): boolean {
+  if (colName.toLowerCase().match(/(email|phone|ssn|social|password)/)) return true;
+  const nonNull = values.filter(v => typeof v === 'string' && v.trim() !== '');
+  if (!nonNull.length) return false;
+  
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const phoneRegex = /^\+?[0-9\s\-\(\)]{7,15}$/;
+  let matchCount = 0;
+  for (let i = 0; i < Math.min(nonNull.length, 10); i++) {
+    const val = String(nonNull[i]);
+    if (emailRegex.test(val) || phoneRegex.test(val)) matchCount++;
+  }
+  return matchCount > 0;
+}
+
 export function inferTypes(headers: string[], rows: DataRow[]): Record<string, ColumnType> {
   const types: Record<string, ColumnType> = {};
   headers.forEach(h => {
@@ -220,4 +235,49 @@ export function completenessPercent(headers: string[], rows: DataRow[]): number 
   const total = rows.length * headers.length;
   const nulls = rows.reduce((a, r) => a + headers.filter(h => r[h] === null || r[h] === undefined || r[h] === '').length, 0);
   return parseFloat(((1 - nulls / total) * 100).toFixed(1));
+}
+
+// ─── Pearson Correlation ──────────────────────────────────────────────────────
+export function calcPearsonCorrelation(colA: string, colB: string, rows: DataRow[]): number {
+  const valid = rows.map(r => ({ x: Number(r[colA]), y: Number(r[colB]) })).filter(r => !isNaN(r.x) && !isNaN(r.y));
+  if (valid.length === 0) return 0;
+  const meanX = valid.reduce((a, b) => a + b.x, 0) / valid.length;
+  const meanY = valid.reduce((a, b) => a + b.y, 0) / valid.length;
+  
+  let num = 0, denX = 0, denY = 0;
+  for (const p of valid) {
+    const dx = p.x - meanX;
+    const dy = p.y - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  return denX === 0 || denY === 0 ? 0 : num / Math.sqrt(denX * denY);
+}
+
+// ─── A/B Test Simulator (Welch's T-Test Approximation) ────────────────────────
+export function simulateABTest(targetCol: string, groupCol: string, controlVal: string, variantVal: string, rows: DataRow[]) {
+  const control = rows.filter(r => String(r[groupCol]) === controlVal).map(r => Number(r[targetCol])).filter(v => !isNaN(v));
+  const variant = rows.filter(r => String(r[groupCol]) === variantVal).map(r => Number(r[targetCol])).filter(v => !isNaN(v));
+
+  if (control.length < 2 || variant.length < 2) return { pValue: 1, diff: 0, significant: false, controlMean: 0, variantMean: 0 };
+
+  const meanC = control.reduce((a, b) => a + b, 0) / control.length;
+  const meanV = variant.reduce((a, b) => a + b, 0) / variant.length;
+  const varC = control.reduce((a, b) => a + Math.pow(b - meanC, 2), 0) / (control.length - 1);
+  const varV = variant.reduce((a, b) => a + Math.pow(b - meanV, 2), 0) / (variant.length - 1);
+
+  const tStat = (meanV - meanC) / Math.sqrt(varC / control.length + varV / variant.length);
+  
+  // Approximate p-value for a 2-tailed test (simplified normal approximation)
+  const z = Math.abs(tStat);
+  const pValue = 2 * (1 - (1 / (1 + Math.exp(-1.702 * z)))); // Logistic approximation to normal CDF
+  
+  return {
+    controlMean: meanC,
+    variantMean: meanV,
+    diff: meanV - meanC,
+    pValue,
+    significant: pValue < 0.05
+  };
 }

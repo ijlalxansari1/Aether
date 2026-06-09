@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     const messages: any[] = [];
     
     // We will consume messages for up to 3 seconds or 100 messages
-    return new Promise((resolve) => {
+    return new Promise<Response>((resolve) => {
       let timeoutId: NodeJS.Timeout;
       
       const finish = async () => {

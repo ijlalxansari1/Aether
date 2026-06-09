@@ -8,9 +8,11 @@ import StoreStage from '@/components/stages/StoreStage';
 import CleanStage from '@/components/stages/CleanStage';
 import EthicsStage from '@/components/stages/EthicsStage';
 import AnalyzeStage from '@/components/stages/AnalyzeStage';
-import StoryStage from '@/components/stages/StoryStage';
 import DashboardStage from '@/components/stages/DashboardStage';
 import ReportStage from '@/components/stages/ReportStage';
+import ModelStage from '@/components/stages/ModelStage';
+import EvaluateStage from '@/components/stages/EvaluateStage';
+import DeployStage from '@/components/stages/DeployStage';
 import GlobalSidebar from '@/components/GlobalSidebar';
 import AIAssistant from '@/components/AIAssistant';
 import LandingHero from '@/components/LandingHero';
@@ -18,6 +20,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import PathSelectionStage from '@/components/stages/PathSelectionStage';
 import { Stage, UserPath, DataRow, DataSchema } from '@/lib/types';
 import { inferTypes, detectIssues, applyCleanOp, profileColumn, findReplace, dropColumn } from '@/lib/dataUtils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const CLEANING_ALL = ['remove_dups', 'fill_nulls', 'cap_outliers', 'trim_spaces', 'normalize', 'fix_types'];
 
@@ -52,6 +55,31 @@ export default function AetherApp() {
 
   // ── Progress Saving ────────────────────────────────────────────────────────
   const [hasSavedSession, setHasSavedSession] = useState(false);
+
+  // ── Streaming State ────────────────────────────────────────────────────────
+  const [streamQueue, setStreamQueue] = useState<DataRow[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  useEffect(() => {
+    if (!isStreaming || streamQueue.length === 0) return;
+    const interval = setInterval(() => {
+      setStreamQueue(prev => {
+        if (prev.length === 0) {
+          setIsStreaming(false);
+          clearInterval(interval);
+          return [];
+        }
+        const chunk = prev.slice(0, 25); // 25 rows per second
+        const remainder = prev.slice(25);
+        
+        setRawRows(r => [...r, ...chunk]);
+        setCleanedRows(r => [...r, ...chunk]);
+        
+        return remainder;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isStreaming, streamQueue]);
 
   useEffect(() => {
     // Check if there's a local workspace
@@ -144,14 +172,12 @@ export default function AetherApp() {
 
   // ── Ingest ──────────────────────────────────────────────────────────────────
   
-  const handleIngest = useCallback((hdrs: string[], rows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv') => {
+  const handleIngest = useCallback((hdrs: string[], rows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv', streaming: boolean = false) => {
     const ds = { id: Math.random().toString(36).substr(2, 9), name: fname, headers: hdrs, rows, sourceType: type, ingestedAt: new Date() };
     
     setDatasets(prev => {
       const next = [...prev, ds];
       
-      // If it's the first dataset, we also set it as the primary rawRows for now to maintain backward compatibility with downstream stages
-      // until they are updated to use DuckDB JOINs.
       if (next.length === 1) {
         const t = inferTypes(hdrs, rows);
         const sch = hdrs.map(h => {
@@ -159,19 +185,30 @@ export default function AetherApp() {
           return { name: h, type: t[h], nullCount: p.nulls, uniqueCount: p.unique ?? rows.length };
         });
         setHeaders(hdrs);
-        setRawRows(rows);
-        setCleanedRows(JSON.parse(JSON.stringify(rows)));
         setTypes(t);
         setSchema(sch);
         setFilename(fname);
         setIngestedAt(new Date());
+
+        if (streaming) {
+          // Initialize empty and start stream
+          setRawRows([]);
+          setCleanedRows([]);
+          setStreamQueue(rows);
+          setIsStreaming(true);
+          setStage('dashboard'); // Jump to dashboard to watch live
+          setUserPath('bi'); // Default to BI path to see dashboard
+        } else {
+          setRawRows(rows);
+          setCleanedRows(JSON.parse(JSON.stringify(rows)));
+        }
       }
       return next;
     });
 
     setLogs(prev => [
       ...prev,
-      `» Loaded [${type.toUpperCase()}] ${fname} (${rows.length} rows, ${hdrs.length} cols)`
+      `» Loaded [${type.toUpperCase()}] ${fname} (${rows.length} rows, ${hdrs.length} cols)${streaming ? ' [STREAMING]' : ''}`
     ]);
     setShowHero(false);
     showToast(`✓ Loaded ${fname}`, 'success');
@@ -179,14 +216,31 @@ export default function AetherApp() {
 
 
   // ── Clean Ops ────────────────────────────────────────────────────────────────
+  const [rowHistory, setRowHistory] = useState<{rows: DataRow[], ops: Set<string>}[]>([]);
+
+  function pushHistory() {
+    setRowHistory(prev => [...prev, { rows: [...cleanedRows], ops: new Set(appliedOps) }]);
+  }
+
+  function handleTimeTravel(index: number) {
+    if (index >= rowHistory.length) return;
+    const h = rowHistory[index];
+    setCleanedRows(h.rows);
+    setAppliedOps(h.ops);
+    setRowHistory(prev => prev.slice(0, index));
+    showToast('⏪ Time travel successful!', 'success');
+  }
+
   function handleApplyOp(id: string) {
     if (appliedOps.has(id)) return;
+    pushHistory();
     setCleanedRows(prev => applyCleanOp(id, prev, headers, types));
     setAppliedOps(prev => new Set([...prev, id]));
     showToast(`✓ Applied: ${id.replace(/_/g, ' ')}`, 'success');
   }
 
   function handleApplyAll() {
+    pushHistory();
     let rows = [...cleanedRows];
     const newOps = new Set(appliedOps);
     CLEANING_ALL.forEach(id => {
@@ -199,11 +253,13 @@ export default function AetherApp() {
 
   // ── Advanced Clean ────────────────────────────────────────────────────────────
   function handleFindReplace(col: string, find: string, replace: string) {
+    pushHistory();
     setCleanedRows(prev => findReplace(col, find, replace, prev));
     showToast(`✓ Replaced "${find}" → "${replace}" in ${col}`, 'success');
   }
 
   function handleDropColumn(col: string) {
+    pushHistory();
     const result = dropColumn(col, headers, cleanedRows);
     const rawResult = dropColumn(col, headers, rawRows);
     const newTypes = { ...types };
@@ -237,41 +293,51 @@ export default function AetherApp() {
       {(!showHero || rawRows.length > 0) && <GlobalSidebar />}
       <div className="app-root">
       {/* Topbar */}
-      <header className="topbar">
-        <div className="logo-wrap" style={{ visibility: showHero && rawRows.length === 0 ? 'visible' : 'hidden', width: '200px' }}>
+      <header className="topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: '64px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+        <div className="logo-wrap" style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
           <img src="/logo.svg" alt="AETHER Logo" style={{ width: '24px', height: '24px' }} />
-          <span className="logo-text">Aether</span>
+          <span className="logo-text" style={{ fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em' }}>Aether</span>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '16px' }}>
+            {headers.length > 0 && (
+              <span className="data-badge" style={{ padding: '4px 10px', borderRadius: '16px', background: 'var(--bg-body)', border: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                {rawRows.length}R × {headers.length}C
+              </span>
+            )}
+            <span className="version-badge" style={{ padding: '4px 10px', borderRadius: '16px', background: 'rgba(128,90,213,0.1)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, border: '1px solid rgba(128,90,213,0.2)' }}>
+              MVP v1.0
+            </span>
+          </div>
         </div>
         
         {(!showHero || rawRows.length > 0) && (
           <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
             <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>🔍</span>
+              <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, fontSize: '0.9rem' }}>🔍</span>
               <input 
                 type="text" 
                 placeholder="Search workspaces, data, AI..." 
                 className="search-input" 
-                style={{ width: '100%', paddingLeft: '36px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px' }}
+                style={{ width: '100%', padding: '10px 16px 10px 40px', background: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '24px', fontSize: '0.9rem', outline: 'none', transition: 'border-color 0.2s' }}
               />
             </div>
           </div>
         )}
 
-        <div className="topbar-right" style={{ width: '200px', justifyContent: 'flex-end' }}>
+        <div className="topbar-right" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px' }}>
+          {rawRows.length > 0 && user && (
+            <button className="btn btn-sm btn-secondary" onClick={saveToCloud} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+              Save
+            </button>
+          )}
           {user ? (
-            <div className="flex gap-8" style={{ alignItems: 'center', marginRight: 16 }}>
-              {rawRows.length > 0 && (
-                <button className="btn btn-sm btn-secondary" onClick={saveToCloud}>☁️ Save to Cloud</button>
-              )}
-              <span className="version-badge" style={{ background: 'var(--emerald)', color: '#fff', border: 'none', cursor: 'pointer' }} onClick={() => setUser(null)}>👤 {user.email.split('@')[0]}</span>
-            </div>
+            <button style={{ background: 'var(--emerald)', color: '#fff', border: 'none', cursor: 'pointer', padding: '6px 12px', borderRadius: '16px', fontWeight: 600, fontSize: '0.85rem' }} onClick={() => setUser(null)}>
+              👤 {user.email.split('@')[0]}
+            </button>
           ) : (
-            <button className="btn btn-sm btn-primary" style={{ marginRight: 16 }} onClick={() => setShowAuthModal(true)}>Sign In</button>
+            <button className="btn btn-sm btn-primary" onClick={() => setShowAuthModal(true)} style={{ padding: '8px 16px', borderRadius: '20px', fontWeight: 600 }}>Sign In</button>
           )}
-          {headers.length > 0 && (
-            <span className="data-badge">{rawRows.length}R × {headers.length}C</span>
-          )}
-          <span className="version-badge">MVP v1.0</span>
         </div>
       </header>
 
@@ -284,111 +350,121 @@ export default function AetherApp() {
 
       {(!showHero || rawRows.length > 0) && (
         <ErrorBoundary>
-          {/* Pipeline */}
-          <PipelineBar
-            current={stage}
-            userPath={userPath}
-            hasData={rawRows.length > 0}
-            onStageClick={setStage}
-          />
-
       {/* Stage content */}
       <main className="main-content">
-        {stage === 'ingest' && (
-          <IngestStage
-            onIngest={handleIngest}
-            logs={logs}
-            hasData={datasets.length > 0}
-            datasets={datasets}
-            onProceed={() => setStage('store')}
-            onError={msg => showToast(msg, 'error')}
-          />
-        )}
-        {stage === 'store' && (
-          <StoreStage
-            datasets={datasets}
-            headers={headers}
-            schema={schema}
-            rows={cleanedRows}
-            filename={filename}
-            ingestedAt={ingestedAt}
-            onProceed={() => setStage('clean')}
-            onUpdateRows={handleUpdateRows}
-          />
-        )}
-        {stage === 'clean' && (
-          <CleanStage
-            headers={headers}
-            types={types}
-            rawRows={rawRows}
-            cleanedRows={cleanedRows}
-            issues={issues}
-            appliedOps={appliedOps}
-            onApplyOp={handleApplyOp}
-            onApplyAll={handleApplyAll}
-            onFindReplace={handleFindReplace}
-            onDropColumn={handleDropColumn}
-            onProceed={() => setStage('path-selection')}
-          />
-        )}
-        
-        {stage === 'path-selection' && (
-          <PathSelectionStage 
-            onSelectPath={(path) => {
-              setUserPath(path);
-              if (path === 'analyst') setStage('analyze');
-              else if (path === 'bi') setStage('dashboard');
-              else if (path === 'ds') setStage('model');
-            }}
-          />
-        )}
-        {stage === 'ethics' && (
-          <EthicsStage
-            headers={headers}
-            types={types}
-            rows={cleanedRows}
-            onProceed={() => setStage('analyze')}
-          />
-        )}
-        {stage === 'analyze' && (
-          <AnalyzeStage
-            headers={headers}
-            types={types}
-            rows={cleanedRows}
-            onProceed={() => setStage('story')}
-            onUpdateRows={handleUpdateRows}
-            onError={(msg) => showToast(msg, 'error')}
-          />
-        )}
-        {stage === 'story' && (
-          <StoryStage
-            headers={headers}
-            types={types}
-            rows={cleanedRows}
-            appliedOps={appliedOps}
-            onProceed={() => setStage('dashboard')}
-          />
-        )}
-        {stage === 'dashboard' && (
-          <DashboardStage
-            headers={headers}
-            types={types}
-            rows={cleanedRows}
-            filename={filename}
-            onProceed={() => setStage('report')}
-          />
-        )}
-        {stage === 'report' && (
-          <ReportStage
-            headers={headers}
-            types={types}
-            rows={cleanedRows}
-            rawRows={rawRows}
-            filename={filename}
-            appliedOps={appliedOps}
-            ingestedAt={ingestedAt}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={stage}
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+            style={{ width: '100%', height: '100%' }}
+          >
+            {stage === 'ingest' && (
+              <IngestStage
+                onIngest={handleIngest}
+                logs={logs}
+                hasData={datasets.length > 0}
+                datasets={datasets}
+                onProceed={() => setStage('store')}
+                onError={msg => showToast(msg, 'error')}
+              />
+            )}
+            {stage === 'store' && (
+              <StoreStage
+                datasets={datasets}
+                headers={headers}
+                schema={schema}
+                rows={cleanedRows}
+                filename={filename}
+                ingestedAt={ingestedAt}
+                onProceed={() => setStage('clean')}
+                onUpdateRows={handleUpdateRows}
+              />
+            )}
+            {stage === 'clean' && (
+              <CleanStage 
+                headers={headers} types={types} rawRows={rawRows} cleanedRows={cleanedRows} 
+                issues={issues} appliedOps={appliedOps} onApplyOp={handleApplyOp} onApplyAll={handleApplyAll} 
+                onFindReplace={handleFindReplace} onDropColumn={handleDropColumn} onProceed={() => setStage('path-selection')} 
+                rowHistoryLength={rowHistory.length} onTimeTravel={handleTimeTravel}
+              />
+            )}
+            
+            {stage === 'path-selection' && (
+              <PathSelectionStage 
+                onSelectPath={(path) => {
+                  setUserPath(path);
+                  if (path === 'analyst') setStage('analyze');
+                  else if (path === 'bi') setStage('dashboard');
+                  else if (path === 'ds') setStage('model');
+                }}
+              />
+            )}
+            {stage === 'ethics' && (
+              <EthicsStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+                onProceed={() => setStage('analyze')}
+              />
+            )}
+            {stage === 'analyze' && (
+              <AnalyzeStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+                onProceed={() => setStage('dashboard')}
+                onUpdateRows={handleUpdateRows}
+                onError={(msg) => showToast(msg, 'error')}
+              />
+            )}
+            {stage === 'dashboard' && (
+              <DashboardStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+                filename={filename}
+                onProceed={() => setStage('report')}
+              />
+            )}
+            {stage === 'report' && (
+              <ReportStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+                rawRows={rawRows}
+                filename={filename}
+                appliedOps={appliedOps}
+                ingestedAt={ingestedAt}
+              />
+            )}
+            {stage === 'model' && (
+              <ModelStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+                onProceed={() => setStage('evaluate')}
+              />
+            )}
+            {stage === 'evaluate' && (
+              <EvaluateStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+                onProceed={() => setStage('deploy')}
+              />
+            )}
+            {stage === 'deploy' && (
+              <DeployStage
+                headers={headers}
+                types={types}
+                rows={cleanedRows}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
       </ErrorBoundary>
       )}

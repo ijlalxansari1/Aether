@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Chart, registerables } from 'chart.js';
+import { useEffect, useState } from 'react';
 import { ColProfile, ColumnType, DataRow } from '@/lib/types';
-import { profileColumn, calcBoxPlot } from '@/lib/dataUtils';
+import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest } from '@/lib/dataUtils';
 import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
-
-Chart.register(...registerables);
+import { motion } from 'framer-motion';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
+  ScatterChart, Scatter, ZAxis, Cell
+} from 'recharts';
 
 interface AnalyzeStageProps {
   headers: string[];
@@ -17,7 +19,7 @@ interface AnalyzeStageProps {
   onError?: (msg: string) => void;
 }
 
-type ActiveChart = 'distribution' | 'scatter' | 'boxplot' | 'correlation';
+type ActiveChart = 'distribution' | 'scatter' | 'boxplot' | 'correlation' | 'abtest';
 type MainTab = 'bi' | 'sql';
 
 export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdateRows, onError }: AnalyzeStageProps) {
@@ -30,22 +32,17 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
   const [activeChart, setActiveChart] = useState<ActiveChart>('distribution');
   const [mainTab, setMainTab] = useState<MainTab>('sql'); 
 
+  // A/B Test State
+  const [abTargetCol, setAbTargetCol] = useState(numCols[0] ?? '');
+  const [abGroupCol, setAbGroupCol] = useState(strCols[0] ?? '');
+  const [abControlVal, setAbControlVal] = useState('');
+  const [abVariantVal, setAbVariantVal] = useState('');
+
   // SQL State
   const [sqlQuery, setSqlQuery] = useState('SELECT * FROM dataset LIMIT 10;');
   const [sqlResults, setSqlResults] = useState<DataRow[] | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [dbReady, setDbReady] = useState(false);
-
-  const distRef = useRef<HTMLCanvasElement>(null);
-  const corrRef = useRef<HTMLCanvasElement>(null);
-  const scatterRef = useRef<HTMLCanvasElement>(null);
-  const boxRef = useRef<HTMLCanvasElement>(null);
-  const distChart = useRef<Chart | null>(null);
-  const corrChart = useRef<Chart | null>(null);
-  const scatterChart = useRef<Chart | null>(null);
-  const boxChart = useRef<Chart | null>(null);
-
-  const profiles: ColProfile[] = headers.map(h => profileColumn(h, types[h], rows));
 
   // Initialize DuckDB
   useEffect(() => {
@@ -85,195 +82,219 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
     setSqlResults(null);
   }
 
-  // Distribution chart
-  useEffect(() => {
-    if (mainTab !== 'bi' || !activeDistCol || !distRef.current) return;
-    const vals = rows.map(r => Number(r[activeDistCol])).filter(v => !isNaN(v)).sort((a, b) => a - b);
-    if (!vals.length) return;
-    const bins = 14;
-    const min = Math.min(...vals), max = Math.max(...vals);
-    const bw = (max - min) / bins || 1;
-    const counts = Array(bins).fill(0);
-    const labels: string[] = [];
-    for (let i = 0; i < bins; i++) {
-      labels.push((min + i * bw).toFixed(1));
-      vals.forEach(v => { if (v >= min + i * bw && v < min + (i + 1) * bw) counts[i]++; });
-    }
-    if (distChart.current) distChart.current.destroy();
-    distChart.current = new Chart(distRef.current, {
-      type: 'bar',
-      data: { labels, datasets: [{ label: activeDistCol, data: counts, backgroundColor: 'rgba(0,212,255,0.22)', borderColor: 'rgba(0,212,255,0.8)', borderWidth: 1, borderRadius: 4 }] },
-      options: { ...chartBase(), plugins: { legend: { display: false } } },
-    });
-    return () => { distChart.current?.destroy(); };
-  }, [activeDistCol, rows, mainTab]);
+  // Calculate Distribution Data
+  const distVals = rows.map(r => Number(r[activeDistCol])).filter(v => !isNaN(v)).sort((a, b) => a - b);
+  const bins = 14;
+  const min = Math.min(...distVals), max = Math.max(...distVals);
+  const bw = (max - min) / bins || 1;
+  const distCounts = Array(bins).fill(0);
+  const distLabels: string[] = [];
+  for (let i = 0; i < bins; i++) {
+    distLabels.push((min + i * bw).toFixed(1));
+    distVals.forEach(v => { if (v >= min + i * bw && v < min + (i + 1) * bw) distCounts[i]++; });
+  }
+  const distData = distLabels.map((name, i) => ({ name, value: distCounts[i] }));
 
-  // Scatter plot
-  useEffect(() => {
-    if (mainTab !== 'bi' || !scatterRef.current || !scatterX || !scatterY) return;
-    const groups: Record<string, { x: number; y: number }[]> = {};
-    rows.forEach(r => {
-      const x = Number(r[scatterX]), y = Number(r[scatterY]);
-      if (isNaN(x) || isNaN(y)) return;
-      const g = scatterGroup ? String(r[scatterGroup] ?? 'Other') : 'Data';
-      if (!groups[g]) groups[g] = [];
-      groups[g].push({ x, y });
-    });
-    const palette = Object.keys(groups).map((_, i) => `hsl(${190 + i * 55},75%,58%)`);
-    if (scatterChart.current) scatterChart.current.destroy();
-    scatterChart.current = new Chart(scatterRef.current, {
-      type: 'scatter',
-      data: {
-        datasets: Object.entries(groups).map(([label, data], i) => ({
-          label, data,
-          backgroundColor: palette[i]?.replace('58%', '55%') + 'cc',
-          borderColor: palette[i],
-          borderWidth: 1, pointRadius: 4,
-        })),
-      },
-      options: {
-        ...chartBase(),
-        plugins: { legend: { position: 'top', labels: { color: 'var(--text-secondary)', font: { size: 11 } } } },
-        scales: {
-          x: { title: { display: true, text: scatterX, color: 'var(--text-secondary)' }, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' } },
-          y: { title: { display: true, text: scatterY, color: 'var(--text-secondary)' }, ticks: { color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' } },
-        },
-      },
-    });
-    return () => { scatterChart.current?.destroy(); };
-  }, [scatterX, scatterY, scatterGroup, rows, mainTab]);
+  // Calculate Scatter Data
+  const scatterData = rows.map(r => ({
+    x: Number(r[scatterX]),
+    y: Number(r[scatterY]),
+    group: scatterGroup ? String(r[scatterGroup] ?? 'Other') : 'Data'
+  })).filter(r => !isNaN(r.x) && !isNaN(r.y));
 
-  // Box plot (simulated as floating bar chart)
-  useEffect(() => {
-    if (mainTab !== 'bi' || !boxRef.current || !numCols.length) return;
-    const cols = numCols.slice(0, 6);
-    const boxData = cols.map(c => calcBoxPlot(c, rows));
-    if (boxChart.current) boxChart.current.destroy();
-    boxChart.current = new Chart(boxRef.current, {
-      type: 'bar',
-      data: {
-        labels: cols,
-        datasets: [
-          { label: 'Min→Q1', data: boxData.map(b => b.q1 - b.min), backgroundColor: 'rgba(124,58,237,0.25)', stack: 'box' },
-          { label: 'Q1→Median', data: boxData.map(b => b.median - b.q1), backgroundColor: 'rgba(0,212,255,0.4)', stack: 'box' },
-          { label: 'Median→Q3', data: boxData.map(b => b.q3 - b.median), backgroundColor: 'rgba(0,212,255,0.25)', stack: 'box' },
-          { label: 'Q3→Max', data: boxData.map(b => b.max - b.q3), backgroundColor: 'rgba(124,58,237,0.15)', stack: 'box' },
-          { type: 'line', label: 'Mean', data: boxData.map(b => b.mean), borderColor: 'rgba(245,158,11,0.9)', borderWidth: 2, borderDash: [4, 4], pointBackgroundColor: 'var(--amber)', pointRadius: 5, fill: false } as unknown as Chart['data']['datasets'][number],
-        ],
-      },
-      options: {
-        ...chartBase(),
-        plugins: { legend: { position: 'top', labels: { color: 'var(--text-secondary)', font: { size: 10 } } } },
-      },
-    });
-    return () => { boxChart.current?.destroy(); };
-  }, [rows, numCols.join(','), mainTab]);
+  // Box plot data (Mapped to Bar Chart representation)
+  const boxCols = numCols.slice(0, 6);
+  const boxDataRaw = boxCols.map(c => calcBoxPlot(c, rows));
+  const boxData = boxDataRaw.map((b, i) => ({
+    name: boxCols[i],
+    min: b.min,
+    q1: parseFloat((b.q1 - b.min).toFixed(2)),
+    median: parseFloat((b.median - b.q1).toFixed(2)),
+    q3: parseFloat((b.q3 - b.median).toFixed(2)),
+    max: parseFloat((b.max - b.q3).toFixed(2))
+  }));
 
-  // Correlation bubble
-  useEffect(() => {
-    if (mainTab !== 'bi' || !corrRef.current || numCols.length < 2) return;
-    const cols = numCols.slice(0, 6);
-    const colors: string[] = [];
-    const data = cols.flatMap((a, i) => cols.map((b, j) => {
-      const va = rows.map(r => Number(r[a])).filter(v => !isNaN(v));
-      const vb = rows.map(r => Number(r[b])).filter(v => !isNaN(v));
-      const n = Math.min(va.length, vb.length);
-      const ma = va.slice(0, n).reduce((s, v) => s + v, 0) / n;
-      const mb = vb.slice(0, n).reduce((s, v) => s + v, 0) / n;
-      const num = va.slice(0, n).reduce((s, v, k) => s + (v - ma) * (vb[k] - mb), 0);
-      const da = Math.sqrt(va.slice(0, n).reduce((s, v) => s + (v - ma) ** 2, 0));
-      const db = Math.sqrt(vb.slice(0, n).reduce((s, v) => s + (v - mb) ** 2, 0));
-      const corr = da && db ? num / (da * db) : 0;
-      colors.push(corr >= 0 ? `rgba(0,212,255,${Math.abs(corr) * 0.8 + 0.1})` : `rgba(244,63,94,${Math.abs(corr) * 0.8 + 0.1})`);
-      return { x: j, y: i, r: Math.abs(corr) * 22 + 4, label: `${a}↔${b}: ${corr.toFixed(2)}` };
-    }));
-    if (corrChart.current) corrChart.current.destroy();
-    corrChart.current = new Chart(corrRef.current, {
-      type: 'bubble',
-      data: { datasets: [{ label: 'Correlation', data, backgroundColor: colors }] },
-      options: {
-        ...chartBase(),
-        scales: {
-          x: { ticks: { callback: (v) => cols[v as number] ?? '', color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' }, min: -0.5, max: cols.length - 0.5 },
-          y: { ticks: { callback: (v) => cols[v as number] ?? '', color: 'var(--text-secondary)' }, grid: { color: 'var(--border)' }, min: -0.5, max: cols.length - 0.5 },
-        },
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => (c.raw as { label: string }).label } } },
-      },
+  // Correlation Matrix Data
+  const corrCols = numCols.slice(0, 6);
+  const corrData = corrCols.map(c1 => {
+    const row: any = { name: c1 };
+    corrCols.forEach(c2 => {
+      row[c2] = calcPearsonCorrelation(c1, c2, rows);
     });
-    return () => { corrChart.current?.destroy(); };
-  }, [rows, numCols.join(','), mainTab]);
+    return row;
+  });
 
-  const CHART_TABS: { id: ActiveChart; label: string; icon: string }[] = [
-    { id: 'distribution', label: 'Distribution', icon: '📊' },
-    { id: 'scatter', label: 'Scatter Plot', icon: '⬡' },
-    { id: 'boxplot', label: 'Box Plot', icon: '📦' },
-    { id: 'correlation', label: 'Correlation', icon: '🔗' },
-  ];
+  // A/B Test Results
+  const abTestResults = activeChart === 'abtest' && abTargetCol && abGroupCol && abControlVal && abVariantVal ? 
+    simulateABTest(abTargetCol, abGroupCol, abControlVal, abVariantVal, rows) : null;
+
+
+  const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } };
+  const itemVariants = { hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } };
 
   return (
-    <div className="stage-content">
-      <div className="stage-header flex-between">
+    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="stage-content">
+      <motion.div variants={itemVariants} className="stage-header flex-between" style={{ marginBottom: '32px' }}>
         <div>
-          <h1 className="stage-title"><span>⚙️</span> Transform & Analyze</h1>
-          <p className="stage-sub">Use DuckDB SQL for complex transformations or view BI charts.</p>
+          <h1 className="stage-title" style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
+            <span style={{ marginRight: '12px' }}>⚙️</span> Transform & Analyze
+          </h1>
+          <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>Use DuckDB SQL for complex transformations or view EDA charts.</p>
         </div>
-        <button className="btn btn-primary" onClick={onProceed}>Generate Story →</button>
-      </div>
+        <button className="btn btn-primary" onClick={onProceed} style={{ background: 'linear-gradient(135deg, var(--emerald), var(--cyan))', border: 'none', color: '#fff', boxShadow: '0 0 20px rgba(16,185,129,0.4)' }}>Generate Story →</button>
+      </motion.div>
 
-      <div className="chart-tabs" style={{ marginBottom: 20 }}>
-        <button className={`chart-tab ${mainTab === 'sql' ? 'active' : ''}`} onClick={() => setMainTab('sql')}>
+      <motion.div variants={itemVariants} className="chart-tabs" style={{ display: 'flex', gap: '32px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '32px', position: 'relative' }}>
+        <div 
+          className={`chart-tab ${mainTab === 'sql' ? 'active' : ''}`} 
+          onClick={() => setMainTab('sql')}
+          style={{ padding: '0 0 16px 0', color: mainTab === 'sql' ? 'var(--cyan)' : 'var(--text-secondary)', fontSize: '15px', fontWeight: mainTab === 'sql' ? 600 : 400, cursor: 'pointer', position: 'relative' }}
+        >
           💾 SQL Workspace (DuckDB)
-        </button>
-        <button className={`chart-tab ${mainTab === 'bi' ? 'active' : ''}`} onClick={() => setMainTab('bi')}>
-          📊 BI Analysis
-        </button>
-      </div>
+          {mainTab === 'sql' && <motion.div layoutId="mainTabActive" style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }} />}
+        </div>
+        <div 
+          className={`chart-tab ${mainTab === 'bi' ? 'active' : ''}`} 
+          onClick={() => setMainTab('bi')}
+          style={{ padding: '0 0 16px 0', color: mainTab === 'bi' ? 'var(--cyan)' : 'var(--text-secondary)', fontSize: '15px', fontWeight: mainTab === 'bi' ? 600 : 400, cursor: 'pointer', position: 'relative' }}
+        >
+          📊 Exploratory Data Analysis (EDA)
+          {mainTab === 'bi' && <motion.div layoutId="mainTabActive" style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }} />}
+        </div>
+      </motion.div>
 
-      {mainTab === 'sql' && (
-        <div className="card chart-card">
-          <div className="flex-between" style={{ marginBottom: 10 }}>
-            <h3 style={{ fontSize: '18px', color: 'var(--text-primary)' }}>DuckDB SQL Editor</h3>
-            {!dbReady ? (
-              <span style={{ color: 'var(--amber)' }}>⏳ Initializing DuckDB WASM...</span>
-            ) : (
-              <span style={{ color: 'var(--emerald)' }}>✅ Connected</span>
-            )}
+      {mainTab === 'bi' ? (
+        <motion.div variants={itemVariants} className="card chart-card">
+          <div className="flex-between" style={{ marginBottom: '24px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>EDA Engine</h3>
+            <div className="flex gap-8">
+              {(['distribution', 'scatter', 'boxplot', 'correlation', 'abtest'] as ActiveChart[]).map(t => (
+                <button 
+                  key={t}
+                  onClick={() => setActiveChart(t)} 
+                  style={{ background: activeChart === t ? 'var(--accent)' : 'transparent', color: activeChart === t ? '#fff' : 'var(--text-muted)', border: '1px solid var(--border)', padding: '6px 12px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                >
+                  {t === 'abtest' ? 'A/B Test' : t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
           
-          <textarea
-            className="paste-area"
-            style={{ fontFamily: 'monospace', height: '150px', fontSize: '14px', background: 'var(--bg-surface)', color: 'var(--text-primary)', borderColor: 'var(--border)' }}
-            value={sqlQuery}
-            onChange={(e) => setSqlQuery(e.target.value)}
-            disabled={!dbReady || isExecuting}
-          />
-          
-          <div className="flex gap-8" style={{ marginTop: 10 }}>
-            <button className="btn btn-secondary" onClick={handleRunSQL} disabled={!dbReady || isExecuting}>
-              {isExecuting ? '⏳ Executing...' : '▶ Run Query'}
-            </button>
-            {sqlResults && (
-              <button className="btn btn-primary" onClick={handleApplySQL}>
-                ✅ Apply to Pipeline
+          <div style={{ height: '400px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              {activeChart === 'distribution' ? (
+                <BarChart data={distData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <RechartsTooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
+                  <Bar dataKey="value" fill="var(--cyan)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              ) : activeChart === 'scatter' ? (
+                <ScatterChart>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis type="number" dataKey="x" name={scatterX} stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis type="number" dataKey="y" name={scatterY} stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
+                  <Scatter name="Data" data={scatterData} fill="var(--violet)" />
+                </ScatterChart>
+              ) : activeChart === 'boxplot' ? (
+                <BarChart data={boxData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <RechartsTooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
+                  <Bar dataKey="min" stackId="a" fill="transparent" />
+                  <Bar dataKey="q1" stackId="a" fill="var(--violet)" radius={[0,0,0,0]} />
+                  <Bar dataKey="median" stackId="a" fill="var(--cyan)" radius={[0,0,0,0]} />
+                  <Bar dataKey="q3" stackId="a" fill="var(--emerald)" radius={[0,0,0,0]} />
+                  <Bar dataKey="max" stackId="a" fill="var(--amber)" radius={[0,0,0,0]} />
+                </BarChart>
+              ) : activeChart === 'correlation' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: `100px repeat(${corrCols.length}, 1fr)`, gap: '4px', height: '100%' }}>
+                  <div />
+                  {corrCols.map(c => <div key={c} style={{ textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>{c}</div>)}
+                  {corrCols.map(c1 => (
+                    <React.Fragment key={c1}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', paddingRight: '8px' }}>{c1}</div>
+                      {corrCols.map(c2 => {
+                        const val = corrData.find(r => r.name === c1)?.[c2] ?? 0;
+                        const intensity = Math.abs(val);
+                        const isPositive = val >= 0;
+                        const bg = isPositive ? `rgba(16, 185, 129, ${intensity})` : `rgba(244, 63, 94, ${intensity})`;
+                        return (
+                          <div key={c2} style={{ background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: intensity > 0.5 ? '#fff' : 'var(--text-primary)', borderRadius: '4px' }}>
+                            {val.toFixed(2)}
+                          </div>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '16px' }}>
+                  <div style={{ display: 'flex', gap: '16px' }}>
+                    <select className="search-input" value={abTargetCol} onChange={e => setAbTargetCol(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }}>
+                      {numCols.map(c => <option key={c} value={c}>Target: {c}</option>)}
+                    </select>
+                    <select className="search-input" value={abGroupCol} onChange={e => setAbGroupCol(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }}>
+                      {strCols.map(c => <option key={c} value={c}>Group By: {c}</option>)}
+                    </select>
+                    <input className="search-input" placeholder="Control Group Value" value={abControlVal} onChange={e => setAbControlVal(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }} />
+                    <input className="search-input" placeholder="Variant Group Value" value={abVariantVal} onChange={e => setAbVariantVal(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }} />
+                  </div>
+                  {abTestResults && (
+                    <div style={{ background: 'var(--bg-body)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                      <h4 style={{ margin: '0 0 16px 0' }}>T-Test Results</h4>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div><strong>Control Mean:</strong> {abTestResults.controlMean.toFixed(2)}</div>
+                        <div><strong>Variant Mean:</strong> {abTestResults.variantMean.toFixed(2)}</div>
+                        <div><strong>Absolute Difference:</strong> {abTestResults.diff.toFixed(2)}</div>
+                        <div style={{ color: abTestResults.significant ? 'var(--emerald)' : 'var(--amber)' }}>
+                          <strong>P-Value:</strong> {abTestResults.pValue.toFixed(4)} 
+                          {abTestResults.significant ? ' (Statistically Significant!)' : ' (Not Significant)'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
+          <div className="card">
+            <div className="card-label">DuckDB In-Browser SQL</div>
+            <textarea
+              className="search-input"
+              style={{ width: '100%', height: '120px', fontFamily: 'monospace', padding: '16px', background: '#0a0a0a', border: '1px solid var(--border)', borderRadius: '8px', color: '#10b981', fontSize: '14px', resize: 'vertical' }}
+              value={sqlQuery}
+              onChange={(e) => setSqlQuery(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <button className="btn btn-primary" onClick={handleRunSQL} disabled={isExecuting || !dbReady}>
+                {isExecuting ? 'Running...' : '▶ Run Query'}
               </button>
-            )}
+              {sqlResults && (
+                <button className="btn btn-secondary" onClick={handleApplySQL} style={{ background: 'var(--emerald)', color: '#fff', border: 'none' }}>
+                  Apply as New Dataset
+                </button>
+              )}
+            </div>
           </div>
-
+          
           {sqlResults && (
-            <div style={{ marginTop: 20 }}>
-              <div className="card-label">Result Preview ({sqlResults.length} rows)</div>
-              <div className="table-wrap" style={{ maxHeight: '300px' }}>
-                <table className="data-table">
+            <div className="card">
+              <div className="card-label">Query Results ({sqlResults.length} rows)</div>
+              <div className="table-container" style={{ maxHeight: 300, overflowX: 'auto', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', whiteSpace: 'nowrap' }}>
                   <thead>
-                    <tr>
-                      {Object.keys(sqlResults[0] || {}).map(h => <th key={h}>{h}</th>)}
-                    </tr>
+                    <tr>{Object.keys(sqlResults[0] || {}).map(k => <th key={k}>{k}</th>)}</tr>
                   </thead>
                   <tbody>
-                    {sqlResults.slice(0, 50).map((r, i) => (
-                      <tr key={i}>
-                        {Object.values(r).map((val, j) => <td key={j}>{String(val)}</td>)}
-                      </tr>
+                    {sqlResults.map((r, i) => (
+                      <tr key={i}>{Object.values(r).map((v: any, j) => <td key={j}>{String(v)}</td>)}</tr>
                     ))}
                   </tbody>
                 </table>
@@ -282,119 +303,6 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
           )}
         </div>
       )}
-
-      {mainTab === 'bi' && (
-        <div className="card chart-card">
-          <div className="flex-between" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-            <div className="chart-tabs">
-              {CHART_TABS.map(t => (
-                <button key={t.id} className={`chart-tab ${activeChart === t.id ? 'active' : ''}`} onClick={() => setActiveChart(t.id)}>
-                  {t.icon} {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Distribution */}
-          {activeChart === 'distribution' && (
-            <>
-              <div className="chart-tabs" style={{ marginBottom: 14 }}>
-                {numCols.slice(0, 6).map(c => (
-                  <button key={c} className={`chart-tab ${c === activeDistCol ? 'active' : ''}`} onClick={() => setActiveDistCol(c)}>{c}</button>
-                ))}
-              </div>
-              <canvas ref={distRef} style={{ maxHeight: 300 }} />
-            </>
-          )}
-
-          {/* Scatter */}
-          {activeChart === 'scatter' && (
-            <>
-              <div className="flex gap-8" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
-                <div className="axis-picker">
-                  <label className="adv-label">X Axis</label>
-                  <select className="adv-select" value={scatterX} onChange={e => setScatterX(e.target.value)}>
-                    {numCols.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="axis-picker">
-                  <label className="adv-label">Y Axis</label>
-                  <select className="adv-select" value={scatterY} onChange={e => setScatterY(e.target.value)}>
-                    {numCols.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                {strCols.length > 0 && (
-                  <div className="axis-picker">
-                    <label className="adv-label">Color by</label>
-                    <select className="adv-select" value={scatterGroup} onChange={e => setScatterGroup(e.target.value)}>
-                      <option value="">None</option>
-                      {strCols.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                )}
-              </div>
-              <canvas ref={scatterRef} style={{ maxHeight: 300 }} />
-            </>
-          )}
-
-          {/* Box plot */}
-          {activeChart === 'boxplot' && (
-            <>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
-                Shows Q1→Q3 interquartile range (stacked bars) with median and mean line · Dashed = Mean
-              </div>
-              <canvas ref={boxRef} style={{ maxHeight: 300 }} />
-            </>
-          )}
-
-          {/* Correlation */}
-          {activeChart === 'correlation' && (
-            <>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
-                Bubble size = correlation strength · Cyan = positive · Red = negative
-              </div>
-              <canvas ref={corrRef} style={{ maxHeight: 300 }} />
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Column profiles */}
-      <div style={{ marginTop: 20 }}>
-        <div className="card-label">Column Profiles</div>
-        <div className="profile-grid">
-          {profiles.map(p => (
-            <div key={p.name} className="profile-card">
-              <div className="profile-name">
-                <span className={`schema-pill type-${p.type === 'number' ? 'cyan' : p.type === 'boolean' ? 'green' : p.type === 'date' ? 'amber' : 'violet'}`}>
-                  {p.name}
-                </span>
-              </div>
-              {p.type === 'number'
-                ? [['Count', p.count], ['Mean', p.mean?.toFixed(2)], ['Median', p.median?.toFixed(2)], ['Std', p.std?.toFixed(2)], ['Min', p.min?.toFixed(2)], ['Max', p.max?.toFixed(2)]]
-                    .map(([k, v]) => <div key={String(k)} className="mini-stat"><span>{k}</span><strong>{v}</strong></div>)
-                : [['Count', p.count], ['Unique', p.unique], ['Top', p.topValue], ['Freq', p.topFreq]]
-                    .map(([k, v]) => <div key={String(k)} className="mini-stat"><span>{k}</span><strong>{v}</strong></div>)
-              }
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    </motion.div>
   );
-}
-
-function chartBase() {
-  return {
-    responsive: true,
-    animation: { duration: 500 },
-    plugins: {
-      tooltip: { backgroundColor: 'var(--bg-card)', titleColor: 'var(--text-primary)', bodyColor: 'var(--text-secondary)', borderColor: 'var(--border)', borderWidth: 1 },
-      legend: { labels: { color: 'var(--text-secondary)', font: { size: 11 } } },
-    },
-    scales: {
-      x: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--border)' } },
-      y: { ticks: { color: 'var(--text-secondary)', font: { size: 11 } }, grid: { color: 'var(--border)' } },
-    },
-  };
 }

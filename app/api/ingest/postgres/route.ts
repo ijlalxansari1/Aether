@@ -29,7 +29,7 @@ export async function POST(req: Request) {
       success: true,
       data: result.rows,
       rowCount: result.rowCount,
-      fields: result.fields.map(f => f.name)
+      fields: result.fields.map((f: any) => f.name)
     });
   } catch (error: any) {
     console.error('Postgres Ingest Error:', error);

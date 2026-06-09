@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 
 interface HeroProps {
   onScroll: () => void;
@@ -25,15 +26,21 @@ const STATS = [
   { val: '100%', label: 'Browser Native' },
 ];
 
-export default function LandingHero({ onScroll, hasSavedSession, onResume }: HeroProps) {
-  const [visible, setVisible] = useState(false);
-  const [tick, setTick] = useState(0);
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { 
+    opacity: 1,
+    transition: { staggerChildren: 0.1, delayChildren: 0.1 }
+  }
+};
 
-  // Entrance animation
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 60);
-    return () => clearTimeout(t);
-  }, []);
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" as const } }
+};
+
+export default function LandingHero({ onScroll, hasSavedSession, onResume }: HeroProps) {
+  const [tick, setTick] = useState(0);
 
   // Cycle through features for the live preview ticker
   useEffect(() => {
@@ -42,95 +49,114 @@ export default function LandingHero({ onScroll, hasSavedSession, onResume }: Her
   }, []);
 
   return (
-    <div className={`hero-root ${visible ? 'hero-visible' : ''}`}>
+    <div className="hero-root hero-visible">
       {/* Animated background orbs */}
       <div className="hero-orb orb-1" />
       <div className="hero-orb orb-2" />
       <div className="hero-orb orb-3" />
 
       {/* ── Hero copy ── */}
-      <div className="hero-center">
-        <div className="hero-eyebrow">
+      <motion.div 
+        className="hero-center"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <motion.div variants={itemVariants} className="hero-eyebrow">
           <span className="eyebrow-dot" />
           End-to-End DataOps Platform
           <span className="eyebrow-badge">MVP v1.0</span>
-        </div>
+        </motion.div>
 
-        <h1 className="hero-headline">
+        <motion.h1 variants={itemVariants} className="hero-headline">
           Turn raw data into
           <br />
           <span className="hero-gradient">insight, instantly.</span>
-        </h1>
+        </motion.h1>
 
-        <p className="hero-body">
+        <motion.p variants={itemVariants} className="hero-body">
           Aether is a browser-native DataOps pipeline — ingest, store, clean, analyze,
           narrate, and report your data through a single beautiful interface.
           <strong> No backend. No setup. Just results.</strong>
-        </p>
+        </motion.p>
 
         {/* Live ticker */}
-        <div className="hero-ticker">
+        <motion.div variants={itemVariants} className="hero-ticker">
           <span className="ticker-label">Now running →</span>
-          <span className="ticker-stage" key={tick} style={{ color: FEATURES[tick].color }}>
+          <motion.span 
+            className="ticker-stage" 
+            key={tick} 
+            style={{ color: FEATURES[tick].color }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
             {FEATURES[tick].icon} {FEATURES[tick].label}
-          </span>
+          </motion.span>
           <span className="ticker-desc">{FEATURES[tick].desc}</span>
-        </div>
+        </motion.div>
 
         {/* CTAs */}
-        <div className="hero-ctas">
-          <button className="btn btn-primary hero-cta-primary" onClick={onScroll}>
+        <motion.div variants={itemVariants} className="hero-ctas">
+          <motion.button 
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }} 
+            className="btn btn-primary hero-cta-primary" 
+            onClick={onScroll}
+          >
             🚀 Start Pipeline
-          </button>
+          </motion.button>
           {hasSavedSession && onResume && (
-            <button className="btn btn-secondary hero-cta-secondary" style={{ borderColor: 'var(--emerald)', color: 'var(--emerald)' }} onClick={onResume}>
+            <motion.button 
+              whileHover={{ scale: 1.05 }} 
+              whileTap={{ scale: 0.95 }}
+              className="btn btn-secondary hero-cta-secondary" 
+              style={{ borderColor: 'var(--emerald)', color: 'var(--emerald)' }} 
+              onClick={onResume}
+            >
               ♻️ Resume Workspace
-            </button>
+            </motion.button>
           )}
-          <a
+          <motion.a
+            whileHover={{ scale: 1.05 }} 
+            whileTap={{ scale: 0.95 }}
             className="btn btn-secondary hero-cta-secondary"
             href="https://github.com/ijlalxansari1/Aether"
             target="_blank"
             rel="noreferrer"
           >
             ⭐ GitHub
-          </a>
-        </div>
+          </motion.a>
+        </motion.div>
 
         {/* Stats */}
-        <div className="hero-stats">
+        <motion.div variants={itemVariants} className="hero-stats">
           {STATS.map(s => (
             <div key={s.label} className="hero-stat">
               <div className="hero-stat-val">{s.val}</div>
               <div className="hero-stat-label">{s.label}</div>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* ── Feature cards strip ── */}
-      <div className="hero-features">
-        {FEATURES.map((f, i) => (
-          <div
-            key={f.label}
-            className="hero-feat-card"
-            style={{ animationDelay: `${i * 0.07}s`, borderColor: tick === i ? f.color + '60' : '' }}
-          >
-            <div className="hero-feat-icon" style={{ background: f.color + '18', color: f.color }}>
-              {f.icon}
-            </div>
-            <div className="hero-feat-label">{f.label}</div>
-            <div className="hero-feat-desc">{f.desc}</div>
-            {i < FEATURES.length - 1 && <div className="hero-feat-arrow" style={{ color: f.color }}>→</div>}
-          </div>
-        ))}
-      </div>
+        </motion.div>
+      </motion.div>
 
       {/* ── Scroll cue ── */}
-      <div className="hero-scroll-cue" onClick={onScroll}>
+      <motion.div 
+        className="hero-scroll-cue" 
+        onClick={onScroll}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1, duration: 1 }}
+      >
         <span>Start ingesting data</span>
-        <div className="scroll-arrow">↓</div>
-      </div>
+        <motion.div 
+          className="scroll-arrow"
+          animate={{ y: [0, 5, 0] }}
+          transition={{ repeat: Infinity, duration: 2 }}
+        >
+          ↓
+        </motion.div>
+      </motion.div>
     </div>
   );
 }

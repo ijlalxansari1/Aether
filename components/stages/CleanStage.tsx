@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { DataRow, QualityIssue, ColumnType } from '@/lib/types';
 import { calcDQScore, findReplace } from '@/lib/dataUtils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const CLEANING_OPS: { id: string; icon: string; title: string; desc: string }[] = [
   { id: 'remove_dups',  icon: '♻️', title: 'Remove Duplicates',   desc: 'Drop exact duplicate rows' },
@@ -25,10 +26,12 @@ interface CleanStageProps {
   onFindReplace: (col: string, find: string, replace: string) => void;
   onDropColumn: (col: string) => void;
   onProceed: () => void;
+  rowHistoryLength?: number;
+  onTimeTravel?: (index: number) => void;
 }
 
 export default function CleanStage({
-  headers, types, rawRows, cleanedRows, issues, appliedOps, onApplyOp, onApplyAll, onFindReplace, onDropColumn, onProceed
+  headers, types, rawRows, cleanedRows, issues, appliedOps, onApplyOp, onApplyAll, onFindReplace, onDropColumn, onProceed, rowHistoryLength = 0, onTimeTravel
 }: CleanStageProps) {
   const [findCol, setFindCol] = useState(headers[0] ?? '');
   const [findVal, setFindVal] = useState('');
@@ -43,19 +46,51 @@ export default function CleanStage({
 
   const strCols = headers.filter(h => types[h] === 'string');
 
-  return (
-    <div className="stage-content">
-      <div className="stage-header flex-between">
-        <div>
-          <h1 className="stage-title"><span>🧹</span> Data Cleaning & Preprocessing</h1>
-          <p className="stage-sub">Detect and resolve nulls, duplicates, outliers — plus advanced find/replace and column management.</p>
-        </div>
-        <button className="btn btn-primary" onClick={onProceed}>Analyze Data →</button>
-      </div>
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
+  };
+  const itemVariants = {
+    hidden: { opacity: 0, y: 15 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } }
+  };
 
-      <div className="two-col">
+  return (
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="stage-content"
+    >
+      <motion.div variants={itemVariants} className="stage-header flex-between" style={{ marginBottom: '32px' }}>
+        <div>
+          <h1 className="stage-title" style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
+            <span style={{ marginRight: '12px' }}>🧹</span> Data Cleaning
+          </h1>
+          <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>Detect and resolve nulls, duplicates, outliers — plus advanced find/replace and column management.</p>
+        </div>
+        <motion.button 
+          className="btn btn-primary" 
+          onClick={onProceed} 
+          whileHover={{ color: '#fcd34d', scale: 1.02 }}
+          style={{ 
+            background: 'linear-gradient(135deg, var(--violet, #7c3aed), var(--accent, #6366f1))', 
+            border: 'none', 
+            color: '#fff', 
+            boxShadow: '0 0 20px rgba(139,92,246,0.4)',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          Analyze Data →
+        </motion.button>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
         {/* Left — issues + completeness */}
-        <div className="col-stack">
+        <div className="col-stack" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <div className="card">
             <div className="card-label">Quality Issues Detected</div>
             {issues.length === 0
@@ -105,7 +140,7 @@ export default function CleanStage({
         </div>
 
         {/* Right — ops + advanced */}
-        <div className="col-stack">
+        <div className="col-stack" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           <div className="card">
             {/* Tabs */}
             <div className="flex gap-8" style={{ marginBottom: 16 }}>
@@ -114,31 +149,34 @@ export default function CleanStage({
             </div>
 
             {activeTab === 'ops' && (
-              <>
-                <div className="ops-grid">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+                <div className="ops-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   {CLEANING_OPS.map(op => (
-                    <div
+                    <motion.div
+                      whileHover={{ y: -2, borderColor: appliedOps.has(op.id) ? 'var(--emerald)' : 'var(--cyan)' }}
+                      whileTap={{ scale: 0.98 }}
                       key={op.id}
                       className={`op-card ${appliedOps.has(op.id) ? 'applied' : ''}`}
                       onClick={() => onApplyOp(op.id)}
+                      style={{ cursor: 'pointer', padding: '16px', background: appliedOps.has(op.id) ? 'rgba(16,185,129,0.1)' : 'var(--bg-card)', border: `1px solid ${appliedOps.has(op.id) ? 'var(--emerald)' : 'var(--border)'}`, borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'center', position: 'relative' }}
                     >
-                      <span className="op-icon">{op.icon}</span>
+                      <span className="op-icon" style={{ fontSize: '24px' }}>{op.icon}</span>
                       <div>
-                        <div className="op-title">{op.title}</div>
-                        <div className="op-desc">{op.desc}</div>
+                        <div className="op-title" style={{ fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>{op.title}</div>
+                        <div className="op-desc" style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{op.desc}</div>
                       </div>
-                      {appliedOps.has(op.id) && <span className="op-check">✓</span>}
-                    </div>
+                      {appliedOps.has(op.id) && <span className="op-check" style={{ position: 'absolute', top: '16px', right: '16px', color: 'var(--emerald)' }}>✓</span>}
+                    </motion.div>
                   ))}
                 </div>
-                <div style={{ marginTop: 16 }}>
-                  <button className="btn btn-primary" onClick={onApplyAll}>⚡ Apply All Fixes</button>
+                <div style={{ marginTop: 24 }}>
+                  <button className="btn btn-primary" onClick={onApplyAll} style={{ width: '100%', padding: '12px', background: 'var(--bg-card-hover)', border: '1px solid var(--emerald)', color: 'var(--emerald)', fontWeight: 700 }}>⚡ Auto-Clean All Issues</button>
                 </div>
-              </>
+              </motion.div>
             )}
 
             {activeTab === 'advanced' && (
-              <div className="advanced-tools">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="advanced-tools">
                 {/* Find & Replace */}
                 <div className="adv-section">
                   <div className="adv-title">🔍 Find & Replace</div>
@@ -194,7 +232,7 @@ export default function CleanStage({
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Click a column to confirm dropping it from the dataset</div>
                 </div>
-              </div>
+              </motion.div>
             )}
           </div>
 
@@ -215,10 +253,38 @@ export default function CleanStage({
             ))}
           </div>
         </div>
-      </div>
+      </motion.div>
+
+      {/* Time Travel Slider */}
+      {rowHistoryLength > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{ marginTop: 20, background: 'rgba(255,255,255,0.02)', padding: '16px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ fontWeight: 600, color: 'var(--cyan)' }}>⏪ Time-Travel (Data Versioning)</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{rowHistoryLength} previous versions available</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Past</span>
+            <input 
+              type="range" 
+              min="0" 
+              max={rowHistoryLength} 
+              defaultValue={rowHistoryLength}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (val < rowHistoryLength && onTimeTravel) onTimeTravel(val);
+              }}
+              style={{ flex: 1, accentColor: 'var(--cyan)' }} 
+            />
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Present</span>
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '12px', marginBottom: 0 }}>
+            Drag the slider backward to instantly revert the dataset and all data quality checks to a previous state before an operation was applied.
+          </p>
+        </motion.div>
+      )}
 
       {/* DQ Score */}
-      <div className="card" style={{ marginTop: 20 }}>
+      <motion.div variants={itemVariants} className="card" style={{ marginTop: 20 }}>
         <div className="flex-between">
           <div>
             <div className="card-label" style={{ margin: 0 }}>Overall Data Quality Score</div>
@@ -244,7 +310,7 @@ export default function CleanStage({
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>DQ Score</div>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

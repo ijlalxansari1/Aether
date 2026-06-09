@@ -20,7 +20,7 @@ export async function POST(req: Request) {
       role
     });
 
-    return new Promise((resolve) => {
+    return new Promise<Response>((resolve) => {
       connection.connect((err, conn) => {
         if (err) {
           console.error('Snowflake connect error:', err);

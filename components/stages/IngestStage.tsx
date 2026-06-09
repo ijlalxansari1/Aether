@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { DataRow } from '@/lib/types';
 import { SAMPLE_DATASETS } from '@/lib/samples';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface IngestStageProps {
   onIngest: (headers: string[], rows: DataRow[], filename: string, type: 'csv'|'api'|'pdf'|'db') => void;
@@ -17,6 +18,11 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
 
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteText, setPasteText] = useState('');
+
+  // Enterprise Features State
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [enableContract, setEnableContract] = useState(false);
+  const [contractCols, setContractCols] = useState('5');
   
 
 
@@ -67,6 +73,37 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
   const [restUrl, setRestUrl] = useState('');
   const [restMethod, setRestMethod] = useState('GET');
   const [restHeaders, setRestHeaders] = useState('{\n  "Authorization": "Bearer YOUR_TOKEN"\n}');
+
+  function getRecommendations(dataset: any) {
+    if (!dataset) return [];
+    const recs = [
+      "Store Raw: Proceed to the Store stage to safely land this raw data into your Data Warehouse before transformation."
+    ];
+    
+    if (dataset.rows.length > 1000) {
+      recs.push("Volume Check: Dataset has over 1,000 rows. In the Integrate/Transform phase, consider filtering or aggregating early to reduce compute costs.");
+    }
+
+    let hasNulls = false;
+    const sample = dataset.rows.slice(0, 50);
+    for (const row of sample) {
+      if (Object.values(row).some(v => v === null || v === '' || v === undefined)) {
+        hasNulls = true;
+        break;
+      }
+    }
+    
+    if (hasNulls) {
+      recs.push("Data Quality: Missing values detected. Use the Integrate/Transform stage to impute or drop nulls before further integration.");
+    }
+    
+    const hasDates = dataset.headers.some((h: string) => h.toLowerCase().includes('date') || h.toLowerCase().includes('time'));
+    if (hasDates) {
+      recs.push("Time-Series: Date/time columns detected. Ensure standardization (e.g. ISO 8601) during the Transform phase to enable temporal joins.");
+    }
+
+    return recs;
+  }
 
   const fileRef = useRef<HTMLInputElement>(null);
   const pasteRef = useRef<HTMLTextAreaElement>(null);
@@ -245,15 +282,56 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
   }
 
 
-  function handleFile(file: File) {
+  async function handleFile(file: File) {
     if (!file) return;
+
+    if (file.name.toLowerCase().endsWith('.zip')) {
+      try {
+        const JSZip = (await import('jszip')).default;
+        const zip = new JSZip();
+        const loadedZip = await zip.loadAsync(file);
+        
+        // Find the first .csv file in the zip
+        const csvFile = Object.values(loadedZip.files).find(f => !f.dir && f.name.toLowerCase().endsWith('.csv'));
+        if (!csvFile) {
+          return onError('No CSV file found in the ZIP archive.');
+        }
+
+        const csvContent = await csvFile.async('text');
+        const safeName = csvFile.name.split('/').pop()?.replace(/[^a-zA-Z0-9.\-_]/g, '') || 'extracted_data.csv';
+        
+        const Papa = (await import('papaparse')).default;
+        Papa.parse(csvContent, {
+          header: true, skipEmptyLines: true, dynamicTyping: true,
+          complete: (r: any) => {
+            if (!r.data || !r.data.length) return onError('CSV file in ZIP is empty');
+            onIngest(r.meta.fields || [], r.data, safeName, 'csv');
+          }
+        });
+      } catch (err: any) {
+        onError('Failed to extract ZIP: ' + err.message);
+      }
+      return;
+    }
+
     const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '');
     import('papaparse').then(({ default: Papa }) => {
       Papa.parse(file as any, {
         header: true, skipEmptyLines: true, dynamicTyping: true,
         complete: (r: any) => {
           if (!r.data || !r.data.length) return onError('CSV file is empty');
-          onIngest(r.meta.fields || [], r.data, safeName, 'csv');
+          
+          const hdrs = r.meta.fields || [];
+          
+          // Data Contract Validation (Schema Drift)
+          if (enableContract) {
+            const expectedCols = parseInt(contractCols, 10);
+            if (!isNaN(expectedCols) && hdrs.length !== expectedCols) {
+              return onError(`SCHEMA DRIFT DETECTED: Contract expected ${expectedCols} columns, but received ${hdrs.length} columns.`);
+            }
+          }
+
+          onIngest(hdrs, r.data, safeName, 'csv', isStreaming);
         }
       });
     });
@@ -265,223 +343,192 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
     onIngest(mockHeaders, mockRows, 'extracted_documents.pdf', 'pdf');
   }
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
+  };
+  const itemVariants = {
+    hidden: { opacity: 0, y: 15 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } }
+  };
+
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', color: 'var(--text-primary)', fontFamily: 'system-ui, sans-serif' }}>
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="stage-content"
+      style={{ maxWidth: '1200px', margin: '0 auto', color: 'var(--text-primary)', fontFamily: 'system-ui, sans-serif' }}
+    >
       
       {/* Top Header */}
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'inline-block', background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 600, marginBottom: '16px' }}>
+      <motion.div variants={itemVariants} style={{ marginBottom: '32px' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', padding: '6px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, marginBottom: '20px', border: '1px solid rgba(99,102,241,0.3)' }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 10px var(--accent)' }} />
           Step 1 of 5 · Extract
         </div>
-        <h1 style={{ fontSize: '28px', fontWeight: 700, margin: '0 0 8px 0' }}>Integration Hub</h1>
-        <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '14px' }}>
+        <h1 style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>Integration Hub</h1>
+        <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>
           Connect a source to begin ingestion. All data is encrypted and consent-stamped on arrival.
         </p>
-      </div>
+      </motion.div>
 
-      {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '32px' }}>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>SOURCES CONNECTED</div>
-          <div style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>3</div>
-          <div style={{ color: 'var(--emerald)', fontSize: '12px', fontWeight: 500 }}>+1 this session</div>
+
+      {/* Enterprise Toggles */}
+      <motion.div variants={itemVariants} style={{ display: 'flex', gap: '24px', marginBottom: '32px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <input type="checkbox" id="streamToggle" checked={isStreaming} onChange={e => setIsStreaming(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: 'var(--emerald)' }} />
+          <div>
+            <label htmlFor="streamToggle" style={{ display: 'block', fontWeight: 600, color: isStreaming ? 'var(--emerald)' : 'var(--text-primary)', cursor: 'pointer' }}>Enable Streaming Mode</label>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Simulate real-time ingestion (25 rows/sec) and jump to live Dashboard.</span>
+          </div>
         </div>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>RECORDS INGESTED</div>
-          <div style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>394k</div>
-          <div style={{ color: 'var(--emerald)', fontSize: '12px', fontWeight: 500 }}>Last: 2 min ago</div>
+
+        <div style={{ width: '1px', background: 'var(--border)' }}></div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <input type="checkbox" id="contractToggle" checked={enableContract} onChange={e => setEnableContract(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: 'var(--amber)' }} />
+          <div>
+            <label htmlFor="contractToggle" style={{ display: 'block', fontWeight: 600, color: enableContract ? 'var(--amber)' : 'var(--text-primary)', cursor: 'pointer' }}>Enforce Data Contract</label>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Require exactly:</span>
+              <input type="number" value={contractCols} onChange={e => setContractCols(e.target.value)} disabled={!enableContract} style={{ width: '60px', background: 'transparent', border: '1px solid var(--border)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }} />
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>columns to prevent schema drift.</span>
+            </div>
+          </div>
         </div>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px' }}>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '11px', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '8px' }}>QUARANTINED</div>
-          <div style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px', color: 'var(--amber)' }}>17</div>
-          <div style={{ color: 'var(--amber)', fontSize: '12px', fontWeight: 500 }}>Review required</div>
-        </div>
-      </div>
+      </motion.div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '24px', borderBottom: '1px solid var(--border)', marginBottom: '24px' }}>
-        <div 
-          onClick={() => setActiveTab('enterprise')}
-          style={{ padding: '0 0 12px 0', color: activeTab === 'enterprise' ? 'var(--accent)' : 'var(--text-secondary)', borderBottom: activeTab === 'enterprise' ? '2px solid var(--accent)' : 'none', fontSize: '14px', fontWeight: activeTab === 'enterprise' ? 500 : 400, cursor: 'pointer' }}
-        >
-          Cloud & databases
-        </div>
-        <div 
-          onClick={() => setActiveTab('local')}
-          style={{ padding: '0 0 12px 0', color: activeTab === 'local' ? 'var(--accent)' : 'var(--text-secondary)', borderBottom: activeTab === 'local' ? '2px solid var(--accent)' : 'none', fontSize: '14px', fontWeight: activeTab === 'local' ? 500 : 400, cursor: 'pointer' }}
-        >
-          Local & APIs
-        </div>
-        <div 
-          onClick={() => setActiveTab('samples')}
-          style={{ padding: '0 0 12px 0', color: activeTab === 'samples' ? 'var(--accent)' : 'var(--text-secondary)', borderBottom: activeTab === 'samples' ? '2px solid var(--accent)' : 'none', fontSize: '14px', fontWeight: activeTab === 'samples' ? 500 : 400, cursor: 'pointer' }}
-        >
-          Sample datasets
-        </div>
-      </div>
-
-      {activeTab === 'enterprise' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '40px' }}>
-          
-          <div onClick={() => setShowSfModal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}
-               onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ width: '40px', height: '40px', background: 'rgba(56,189,248,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>❄️</div>
-              <div style={{ background: 'rgba(56,189,248,0.15)', color: 'var(--sky)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Data Warehouse</div>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>Snowflake</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-              Native integration. Pull live data or run push-down queries directly in Snowflake compute.
-            </p>
+      <motion.div variants={itemVariants} style={{ display: 'flex', gap: '32px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '32px', position: 'relative' }}>
+        {['enterprise', 'local', 'samples'].map(tab => (
+          <div 
+            key={tab}
+            onClick={() => setActiveTab(tab as any)}
+            style={{ 
+              padding: '0 0 16px 0', 
+              color: activeTab === tab ? 'var(--cyan)' : 'var(--text-secondary)', 
+              fontSize: '15px', 
+              fontWeight: activeTab === tab ? 600 : 400, 
+              cursor: 'pointer',
+              position: 'relative'
+            }}
+          >
+            {tab === 'enterprise' ? 'Cloud & databases' : tab === 'local' ? 'Local & APIs' : 'Sample datasets'}
+            {activeTab === tab && (
+              <motion.div 
+                layoutId="activeTab"
+                style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }}
+              />
+            )}
           </div>
+        ))}
+      </motion.div>
 
-          <div onClick={() => setShowBqModal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}
-               onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ width: '40px', height: '40px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>🔍</div>
-              <div style={{ background: 'rgba(239,68,68,0.15)', color: 'var(--rose)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Google Cloud</div>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>BigQuery</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-              High-performance streaming. Synchronize massive datasets instantaneously without exiting Aether.
-            </p>
-          </div>
+        <AnimatePresence mode="wait">
+          <motion.div 
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '40px' }}
+          >
+            {activeTab === 'enterprise' && (
+              <>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--sky)', boxShadow: '0 10px 30px rgba(56,189,248,0.1)' }} onClick={() => setShowSfModal(true)} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(56,189,248,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>❄️</div>
+                    <div style={{ background: 'rgba(56,189,248,0.15)', color: 'var(--sky)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Data Warehouse</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>Snowflake</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0, lineHeight: 1.6 }}>Native integration. Pull live data or run push-down queries directly in Snowflake compute.</p>
+                </motion.div>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--rose)', boxShadow: '0 10px 30px rgba(239,68,68,0.1)' }} onClick={() => setShowBqModal(true)} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(239,68,68,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>🔍</div>
+                    <div style={{ background: 'rgba(239,68,68,0.15)', color: 'var(--rose)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Google Cloud</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>BigQuery</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0, lineHeight: 1.6 }}>High-performance streaming. Synchronize massive datasets instantaneously without exiting Aether.</p>
+                </motion.div>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--amber)', boxShadow: '0 10px 30px rgba(245,158,11,0.1)' }} onClick={() => setShowS3Modal(true)} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(245,158,11,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>☁️</div>
+                    <div style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Object Storage</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>AWS S3</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0, lineHeight: 1.6 }}>Batch process millions of files. Parquet, Avro, and JSON optimized readers built-in.</p>
+                </motion.div>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--emerald)', boxShadow: '0 10px 30px rgba(16,185,129,0.1)' }} onClick={() => setShowPgModal(true)} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(16,185,129,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>🐘</div>
+                    <div style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--emerald)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Relational</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>PostgreSQL</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0, lineHeight: 1.6 }}>Direct connection to production databases. Read-replica support standard.</p>
+                </motion.div>
+              </>
+            )}
 
-          <div onClick={() => setShowS3Modal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}
-               onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ width: '40px', height: '40px', background: 'rgba(245,158,11,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>☁️</div>
-              <div style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Object Storage</div>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>AWS S3</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-              Batch process millions of files. Parquet, Avro, and JSON optimized readers built-in.
-            </p>
-          </div>
+            {activeTab === 'samples' && (
+              <>
+                {Object.values(SAMPLE_DATASETS).map(fn => fn()).map((s, idx) => (
+                  <motion.div 
+                    key={idx}
+                    whileHover={{ y: -4, borderColor: 'var(--cyan)', background: 'var(--bg-card-hover)', boxShadow: '0 10px 30px rgba(6,182,212,0.1)' }}
+                    onClick={() => onIngest(s.headers, s.rows, s.name, 'csv')}
+                    className="card"
+                    style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' }}
+                  >
+                    <div style={{ width: '40px', height: '40px', background: 'rgba(6,182,212,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', color: 'var(--cyan)', marginBottom: '8px' }}>📄</div>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>{s.name}</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>{s.rows.length} rows · Pre-cleaned dataset for testing</p>
+                  </motion.div>
+                ))}
+              </>
+            )}
 
-          <div onClick={() => setShowPgModal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}
-               onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ width: '40px', height: '40px', background: 'rgba(16,185,129,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>🐘</div>
-              <div style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--emerald)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Relational</div>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>PostgreSQL</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-              Direct connection to production databases. Read-replica support standard.
-            </p>
-          </div>
-
-        </div>
-      )}
-
-      {activeTab === 'samples' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginBottom: '40px' }}>
-          {Object.values(SAMPLE_DATASETS).map(fn => fn()).map((s, idx) => (
-            <div 
-              key={idx}
-              onClick={() => onIngest(s.headers, s.rows, s.name, 'csv')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}
-              onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-              onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}
-            >
-              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 8px 0' }}>{s.name}</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-                {s.rows.length} rows · Pre-cleaned dataset for testing
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === 'local' && (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '40px' }}>
-        {/* Cards Grid */}
-        
-        {/* Card 1 */}
-        <div 
-          onClick={() => fileRef.current?.click()}
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer', position: 'relative' }}
-          onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'}
-          onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div style={{ width: '40px', height: '40px', background: 'rgba(99,102,241,0.1)', borderRadius: '8px' }}></div>
-            <div style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Recommended</div>
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>Upload file</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-            CSV, Parquet, JSON, Excel. Auto-detects schema and flags PII columns.
-          </p>
-          <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Encrypted on upload</div>
-          <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files) Array.from(e.target.files).forEach(f => handleFile(f)); }} />
-        </div>
-
-        {/* Card 2 */}
-        <div onClick={() => setShowRestModal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div style={{ width: '40px', height: '40px', background: 'rgba(6,182,212,0.1)', borderRadius: '8px' }}></div>
-            <div style={{ background: 'rgba(6,182,212,0.15)', color: 'var(--cyan)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>REST / GraphQL</div>
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>REST API</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-            Connect any HTTP endpoint. Bearer token, OAuth 2.0, or API key auth.
-          </p>
-          <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Supports polling schedules</div>
-        </div>
-
-        {/* Card 3 */}
-        <div onClick={() => setShowPasteModal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div style={{ width: '40px', height: '40px', background: 'rgba(16,185,129,0.1)', borderRadius: '8px' }}></div>
-            <div style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--emerald)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Paste</div>
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>Paste CSV</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-            Quick ingest for small datasets. Paste raw text, AETHER parses structure instantly.
-          </p>
-          <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Instant preview</div>
-        </div>
-
-        {/* Card 4 */}
-        <div onClick={mockPDFParse} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div style={{ width: '40px', height: '40px', background: 'rgba(245,158,11,0.1)', borderRadius: '8px' }}></div>
-            <div style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>OCR</div>
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>Parse PDF</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-            Extract structured data from PDFs via OCR. Tables, forms, and text blocks detected.
-          </p>
-          <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>~8s per page</div>
-        </div>
-
-        {/* Card 5 */}
-        <div onClick={() => setShowKafkaModal(true)} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', cursor: 'pointer' }}
-               onMouseOver={e => e.currentTarget.style.borderColor = 'var(--accent)'} onMouseOut={e => e.currentTarget.style.borderColor = 'var(--border)'}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div style={{ width: '40px', height: '40px', background: 'rgba(245,158,11,0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>⚡</div>
-              <div style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600 }}>Streaming</div>
-            </div>
-            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>Kafka stream</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-            Subscribe to a Kafka topic. Real-time ingestion with exactly-once delivery guarantee.
-          </p>
-          <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Live feed</div>
-        </div>
-
-        {/* Card 6 */}
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', opacity: 0.5, cursor: 'not-allowed' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-            <div style={{ width: '40px', height: '40px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}></div>
-          </div>
-          <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 12px 0' }}>More connectors</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-            Snowflake, BigQuery, S3, Postgres — 100% Free, coming soon.
-          </p>
-        </div>
-
-      </div>
-      )}
+            {activeTab === 'local' && (
+              <>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--accent)', boxShadow: '0 10px 30px rgba(99,102,241,0.1)' }} onClick={() => fileRef.current?.click()} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(99,102,241,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>📁</div>
+                    <div style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Recommended</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>Upload file</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 16px 0', lineHeight: 1.6 }}>CSV, Parquet, JSON, Excel. Auto-detects schema and flags PII columns.</p>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><span style={{ color: 'var(--emerald)' }}>✓</span> Encrypted on upload</div>
+                  <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files) Array.from(e.target.files).forEach(f => handleFile(f)); }} />
+                </motion.div>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--cyan)', boxShadow: '0 10px 30px rgba(6,182,212,0.1)' }} onClick={() => setShowRestModal(true)} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(6,182,212,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>🌐</div>
+                    <div style={{ background: 'rgba(6,182,212,0.15)', color: 'var(--cyan)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>REST / GraphQL</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>REST API</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 16px 0', lineHeight: 1.6 }}>Connect any HTTP endpoint. Bearer token, OAuth 2.0, or API key auth.</p>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}><span style={{ color: 'var(--cyan)' }}>↻</span> Supports polling schedules</div>
+                </motion.div>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--emerald)', boxShadow: '0 10px 30px rgba(16,185,129,0.1)' }} onClick={() => setShowPasteModal(true)} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(16,185,129,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>📋</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>Paste CSV</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 16px 0', lineHeight: 1.6 }}>Quick ingest for small datasets. Paste raw text, AETHER parses structure instantly.</p>
+                </motion.div>
+                <motion.div whileHover={{ y: -4, borderColor: 'var(--amber)', boxShadow: '0 10px 30px rgba(245,158,11,0.1)' }} onClick={mockPDFParse} className="card" style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(245,158,11,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>📄</div>
+                    <div style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>OCR</div>
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>Parse PDF</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: '0 0 16px 0', lineHeight: 1.6 }}>Extract structured data from PDFs via OCR. Tables, forms, and text blocks detected.</p>
+                </motion.div>
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
 
 
 
@@ -765,6 +812,73 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
         </div>
       )}
 
+      {/* Data Preview */}
+      <motion.div variants={itemVariants} style={{ marginBottom: '40px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--sky)' }}></div>
+          <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '1px', color: 'var(--text-secondary)' }}>DATA PREVIEW</span>
+        </div>
+        <div className="card" style={{ overflowX: 'auto', padding: 0, minHeight: '100px', display: 'flex', flexDirection: 'column' }}>
+          {datasets.length === 0 ? (
+            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              Waiting for data... Connect a source above to see the preview.
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  {datasets[datasets.length - 1].headers.slice(0, 8).map((h: string) => (
+                    <th key={h} style={{ padding: '12px 16px', color: 'var(--cyan)', fontWeight: 600 }}>{h}</th>
+                  ))}
+                  {datasets[datasets.length - 1].headers.length > 8 && <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>...</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {datasets[datasets.length - 1].rows.slice(0, 5).map((row: any, i: number) => (
+                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                    {datasets[datasets.length - 1].headers.slice(0, 8).map((h: string) => (
+                      <td key={h} style={{ padding: '12px 16px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>
+                        {String(row[h] ?? '-')}
+                      </td>
+                    ))}
+                    {datasets[datasets.length - 1].headers.length > 8 && <td style={{ padding: '12px 16px' }}>...</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Smart Recommendations */}
+      <motion.div variants={itemVariants} style={{ marginBottom: '40px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent)' }}></div>
+          <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '1px', color: 'var(--text-secondary)' }}>ELT SMART RECOMMENDATIONS</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+          {datasets.length === 0 ? (
+             <div className="card" style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', background: 'var(--bg-surface)' }}>
+               System will analyze data size, quality, and schema upon ingestion to recommend next ELT steps.
+             </div>
+          ) : (
+            getRecommendations(datasets[datasets.length - 1]).map((rec, idx) => {
+              const parts = rec.split(': ');
+              const title = parts[0];
+              const desc = parts.slice(1).join(': ');
+              return (
+                <div key={idx} className="card" style={{ padding: '16px', display: 'flex', gap: '16px', alignItems: 'flex-start', background: 'var(--bg-surface)' }}>
+                  <div style={{ width: '24px', height: '24px', background: 'rgba(99,102,241,0.1)', color: 'var(--accent)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontWeight: 'bold' }}>!</div>
+                  <div style={{ color: 'var(--text-primary)', fontSize: '14px', lineHeight: 1.5 }}>
+                    <strong style={{ color: 'var(--accent)' }}>{title}: </strong> {desc}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </motion.div>
+
       {/* Ingestion Log */}
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -807,6 +921,6 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
         </div>
       )}
 
-    </div>
+    </motion.div>
   );
 }

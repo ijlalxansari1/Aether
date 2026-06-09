@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     if (!response.Body) throw new Error('Empty file received');
     
     const str = await response.Body.transformToString();
-    const records = parse(str, { columns: true, skip_empty_lines: true });
+    const records: any[] = parse(str, { columns: true, skip_empty_lines: true });
 
     let fields: string[] = [];
     if (records.length > 0) {

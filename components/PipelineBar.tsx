@@ -2,6 +2,7 @@
 
 import { Stage, UserPath } from '@/lib/types';
 import { useEffect, useRef, useMemo } from 'react';
+import { motion } from 'framer-motion';
 
 const BASE_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
   { id: 'ingest',    label: 'Ingest',     icon: '⬆',  desc: 'CSV · JSON · Paste · Drag & drop', color: '#00d4ff' },
@@ -11,7 +12,6 @@ const BASE_STAGES: { id: Stage; label: string; icon: string; desc: string; color
 
 const ANALYST_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
   { id: 'analyze',   label: 'Analyze',    icon: '📊',  desc: 'Scatter · Box plot · Correlation', color: '#f59e0b' },
-  { id: 'story',     label: 'Story',      icon: '📖',  desc: 'Auto-generated data narrative', color: '#ec4899' },
 ];
 
 const BI_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
@@ -70,22 +70,31 @@ export default function PipelineBar({ current, userPath, hasData, onStageClick }
 
         return (
           <div key={s.id} className="pipe-card-wrap">
-            <div
+            <motion.div
+              whileHover={isDisabled ? {} : { scale: 1.05, y: -2 }}
+              whileTap={isDisabled ? {} : { scale: 0.98 }}
+              animate={isActive ? { scale: 1.05, borderColor: s.color, boxShadow: `0 0 15px ${s.color}33` } : { scale: 1, borderColor: 'var(--border)' }}
+              transition={{ duration: 0.2 }}
               className={`pipe-card ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
               onClick={() => {
                 if (isDisabled) return;
                 if (i <= curIdx || hasData) onStageClick(s.id);
               }}
+              style={{ cursor: isDisabled ? 'not-allowed' : 'pointer' }}
             >
               <div className="pipe-card-icon" style={{ color: s.color }}>{s.icon}</div>
               <div className="pipe-card-label">{s.label}</div>
               <div className="pipe-card-desc">{s.desc}</div>
-            </div>
+            </motion.div>
             
             {i < activeStages.length - 1 && (
-              <div className={`pipe-card-connector ${connectorClass}`} style={{ color: isDone ? s.color : isActive ? s.color : 'var(--border-active)' }}>
+              <motion.div 
+                initial={false}
+                animate={{ color: isDone ? s.color : isActive ? s.color : 'var(--border-active)' }}
+                className={`pipe-card-connector ${connectorClass}`}
+              >
                 →
-              </div>
+              </motion.div>
             )}
           </div>
         );
@@ -93,3 +102,4 @@ export default function PipelineBar({ current, userPath, hasData, onStageClick }
     </nav>
   );
 }
+
