@@ -136,15 +136,43 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
     if (!restUrl.trim()) return;
     try {
       const parsedHeaders = JSON.parse(restHeaders || '{}');
-      const res = await fetch(restUrl, {
-        method: restMethod,
-        headers: parsedHeaders,
+      const res = await fetch('/api/ingest/rest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: restUrl,
+          method: restMethod,
+          headers: parsedHeaders
+        })
       });
-      const data = await res.json();
-      const arr = Array.isArray(data) ? data : (data.data || data.items || [data]);
-      if (arr.length === 0) throw new Error('API returned empty array');
+      const resData = await res.json();
+      if (!resData.success) throw new Error(resData.error || 'Failed to fetch API');
       
-      const headers = Object.keys(arr[0]);
+      const data = resData.data;
+      
+      // Helper to deeply find the largest array in the response object
+      function findLargestArray(obj: any): any[] {
+        if (Array.isArray(obj)) return obj;
+        if (!obj || typeof obj !== 'object') return [];
+        let largest: any[] = [];
+        for (const key of Object.keys(obj)) {
+          if (Array.isArray(obj[key])) {
+            if (obj[key].length > largest.length) largest = obj[key];
+          } else if (typeof obj[key] === 'object') {
+            const nested = findLargestArray(obj[key]);
+            if (nested.length > largest.length) largest = nested;
+          }
+        }
+        return largest;
+      }
+
+      let arr = findLargestArray(data);
+      if (arr.length === 0) {
+        // Fallback if no array was found, just use the object itself as a 1-row table
+        arr = [data];
+      }
+      
+      const headers = Object.keys(arr[0] || {});
       const rows = arr.map((item: any) => {
         const row: Record<string, any> = {};
         headers.forEach(h => {
