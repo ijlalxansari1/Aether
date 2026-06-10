@@ -7,7 +7,7 @@ export default function GlobalSidebar() {
   const pathname = usePathname();
   return (
     <aside className="global-sidebar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px', padding: '0 8px' }}>
+      <div className="sidebar-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px', padding: '0 8px' }}>
         <img src="/logo.svg" alt="AETHER Logo" style={{ width: '32px', height: '32px' }} />
         <span style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '0.5px' }}>Aether</span>
         <span style={{ background: 'var(--violet-dim)', color: 'var(--violet)', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, letterSpacing: '0.5px', marginTop: '2px' }}>v1.0</span>

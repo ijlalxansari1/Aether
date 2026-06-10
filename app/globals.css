@@ -1207,3 +1207,79 @@ select:focus {
   color: #f8fafc !important;
   border-color: #0f172a !important;
 }
+
+/* ?? Comprehensive Mobile Fixes */
+@media (max-width: 1024px) {
+  .app-layout { flex-direction: column !important; min-height: 100vh; overflow-y: auto !important; overflow-x: hidden !important; }
+  .global-sidebar { width: 100% !important; border-right: none !important; border-bottom: 1px solid var(--border); padding: 12px 16px !important; position: sticky; top: 0; z-index: 100; flex-shrink: 0; }
+  .sidebar-nav { display: flex !important; overflow-x: auto !important; margin: 0 !important; padding: 0 !important; flex-wrap: nowrap !important; }
+  .nav-group { margin-bottom: 0 !important; margin-right: 12px !important; display: flex !important; flex-direction: row !important; gap: 8px !important; }
+  .nav-label { display: none !important; }
+  .nav-item { padding: 8px 12px !important; white-space: nowrap !important; }
+  .sidebar-footer { display: none !important; }
+  .sidebar-brand { padding: 0 0 12px 0 !important; margin-bottom: 12px !important; }
+
+  .app-root { width: 100% !important; padding: 16px !important; margin-top: 0 !important; }
+  .main-content { padding: 0 !important; }
+
+  /* Pipeline Bar */
+  .pipeline-bar-modern { padding: 16px !important; justify-content: flex-start !important; }
+  .pipe-card-wrap { flex-shrink: 0 !important; }
+  .pipe-card { width: 120px !important; height: 120px !important; padding: 12px !important; }
+  .pipe-card-icon { width: 24px !important; height: 24px !important; font-size: 14px !important; margin-bottom: 8px !important; }
+  .pipe-card-label { font-size: 13px !important; margin-bottom: 4px !important; }
+  .pipe-card-desc { font-size: 10px !important; }
+  .pipe-card-connector { margin: 0 4px !important; font-size: 14px !important; }
+
+  /* Generic layout classes */
+  .flex-between { flex-direction: column !important; align-items: flex-start !important; gap: 16px !important; }
+  .flex-between button { width: 100% !important; }
+  .flex { flex-wrap: wrap !important; }
+
+  /* Tables and overflows */
+  .table-container, .table-wrap { width: 100% !important; max-width: 100vw !important; overflow-x: auto !important; display: block !important; -webkit-overflow-scrolling: touch !important; }
+  table { min-width: 600px !important; } /* Force scroll instead of squishing */
+
+  /* Tabs */
+  .chart-tabs, .ingest-tabs { flex-wrap: nowrap !important; overflow-x: auto !important; padding-bottom: 8px !important; -webkit-overflow-scrolling: touch !important; gap: 16px !important; }
+  .chart-tab { white-space: nowrap !important; padding: 0 0 8px 0 !important; }
+
+  /* Inputs and selects */
+  .search-input { min-width: 100% !important; width: 100% !important; }
+  select, input { max-width: 100% !important; }
+  
+  /* Modals */
+  .modal-content { width: 95% !important; margin: 20px auto !important; padding: 20px !important; }
+}
+
+@media (max-width: 1024px) {
+  /* Fix Topbar layout and overlap */
+  .topbar { height: auto !important; flex-direction: column !important; align-items: stretch !important; padding: 16px !important; gap: 12px !important; }
+  .topbar > div { flex: none !important; width: 100% !important; margin: 0 !important; }
+  
+  /* Hide duplicate logo in topbar */
+  .topbar .logo-wrap { justify-content: space-between !important; }
+  .topbar .logo-wrap img, .topbar .logo-wrap .logo-text { display: none !important; }
+  .topbar .logo-wrap > div { margin-left: 0 !important; width: 100% !important; justify-content: flex-start !important; }
+  
+  .topbar-right { justify-content: space-between !important; flex-direction: row !important; }
+  .topbar-right button { flex: 1 !important; justify-content: center !important; }
+}
+
+@media (max-width: 1024px) {
+  /* RE-FIX Topbar layout */
+  .topbar { flex-direction: row !important; flex-wrap: wrap !important; align-items: center !important; gap: 12px !important; padding: 12px 16px !important; }
+  
+  /* Reset div forced 100% width from previous fix */
+  .topbar > div { flex: 1 1 auto !important; width: auto !important; margin: 0 !important; }
+  
+  /* Ensure search bar takes full width if present, pushing it to next line */
+  .topbar > div:nth-child(2) { flex: 1 1 100% !important; order: 3 !important; }
+  
+  /* Keep logo wrap compact */
+  .topbar .logo-wrap { justify-content: flex-start !important; flex: 0 1 auto !important; }
+  
+  /* Topbar right */
+  .topbar-right { justify-content: flex-end !important; flex: 0 1 auto !important; }
+  .topbar-right button { width: auto !important; }
+}
