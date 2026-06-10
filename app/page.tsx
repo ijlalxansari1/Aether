@@ -386,6 +386,7 @@ export default function AetherApp() {
             {stage === 'clean' && (
               <CleanStage 
                 headers={headers} types={types} rawRows={rawRows} cleanedRows={cleanedRows} 
+                previousRows={rowHistory.length > 0 ? rowHistory[rowHistory.length - 1].rows : rawRows}
                 issues={issues} appliedOps={appliedOps} onApplyOp={handleApplyOp} onApplyAll={handleApplyAll} 
                 onFindReplace={handleFindReplace} onDropColumn={handleDropColumn} onProceed={() => setStage('path-selection')} 
                 rowHistoryLength={rowHistory.length} onTimeTravel={handleTimeTravel}

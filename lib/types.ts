@@ -88,6 +88,13 @@ export interface ReportConfig {
   generatedAt: string;
 }
 
+export interface DataContractRule {
+  id: string;
+  column: string;
+  operator: '>' | '<' | '==' | '!=' | 'contains' | 'not_null';
+  value: string;
+}
+
 export interface AetherState {
   stage: Stage;
   userPath: UserPath;

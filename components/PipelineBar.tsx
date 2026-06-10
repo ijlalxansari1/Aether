@@ -35,12 +35,16 @@ interface PipelineBarProps {
 export default function PipelineBar({ current, userPath, hasData, onStageClick }: PipelineBarProps) {
   const activeStages = useMemo(() => {
     let stages = [...BASE_STAGES];
+    
+    // Persist Path Selection node once reached or selected
+    if (current === 'path-selection' || userPath) {
+      stages.push({ id: 'path-selection', label: 'Path', icon: '🛣️', desc: 'Select your journey', color: '#f59e0b' });
+    }
+
     if (userPath === 'analyst') stages = [...stages, ...ANALYST_STAGES];
     else if (userPath === 'bi') stages = [...stages, ...BI_STAGES];
     else if (userPath === 'ds') stages = [...stages, ...DS_STAGES];
-    else if (current === 'path-selection') {
-      stages.push({ id: 'path-selection', label: 'Path', icon: '🛣️', desc: 'Select your journey', color: '#f59e0b' });
-    }
+    
     return stages;
   }, [userPath, current]);
 

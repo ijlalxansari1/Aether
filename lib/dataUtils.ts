@@ -281,3 +281,199 @@ export function simulateABTest(targetCol: string, groupCol: string, controlVal: 
     significant: pValue < 0.05
   };
 }
+
+// ─── Custom Formula Engine ───────────────────────────────────────────────────
+export function applyCustomFormula(rows: DataRow[], headers: string[], newColName: string, formula: string): DataRow[] {
+  // Very basic safe parser. Replaces column names in the formula with r['colName']
+  // Requires columns to be alphanumeric for safety in this basic version.
+  return rows.map(r => {
+    let result = null;
+    try {
+      // Build function arguments and values
+      const args = headers.map(h => h.replace(/[^a-zA-Z0-9_]/g, ''));
+      const vals = headers.map(h => r[h] === null ? 0 : Number(r[h]) || r[h]);
+      
+      // Attempt to evaluate expression
+      // We sanitize the headers for variable names but map them properly
+      let safeFormula = formula;
+      headers.forEach((h, i) => {
+         const safeH = args[i];
+         if (safeH) {
+           // Regex replace word bounds to substitute variable
+           const regex = new RegExp(`\\b${safeH}\\b`, 'g');
+           safeFormula = safeFormula.replace(regex, `args[${i}]`);
+         }
+      });
+      
+      const fn = new Function('args', `return ${safeFormula};`);
+      result = fn(vals);
+      if (typeof result === 'number' && isNaN(result)) result = null;
+    } catch (e) {
+      result = null; // Ignore errors per row
+    }
+    return { ...r, [newColName]: result };
+  });
+}
+
+// ─── Statistical Anomaly Detection ────────────────────────────────────────────
+export function detectAnomalies(rows: DataRow[], types: Record<string, ColumnType>): number[] {
+  const anomalyRowIndices = new Set<number>();
+  
+  Object.keys(types).filter(h => types[h] === 'number').forEach(h => {
+    const nums = rows.map(r => Number(r[h])).filter(v => !isNaN(v));
+    if (nums.length === 0) return;
+    
+    const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+    const std = Math.sqrt(nums.reduce((a, v) => a + (v - mean) ** 2, 0) / nums.length);
+    
+    if (std === 0) return;
+    
+    rows.forEach((r, idx) => {
+      const val = Number(r[h]);
+      if (!isNaN(val) && Math.abs(val - mean) > 3 * std) {
+        anomalyRowIndices.add(idx);
+      }
+    });
+  })
+  
+  return Array.from(anomalyRowIndices);
+}
+
+// ─── Data Contracts Validation ───────────────────────────────────────────────
+import { DataContractRule } from './types';
+
+export function validateDataContract(rows: DataRow[], rules: DataContractRule[]): { valid: DataRow[], quarantined: DataRow[] } {
+  if (!rules || rules.length === 0) return { valid: rows, quarantined: [] };
+
+  const valid: DataRow[] = [];
+  const quarantined: DataRow[] = [];
+
+  for (const r of rows) {
+    let isValid = true;
+    for (const rule of rules) {
+      const val = r[rule.column];
+      
+      if (rule.operator === 'not_null') {
+        if (val === null || val === undefined || val === '') isValid = false;
+      } else if (rule.operator === '==') {
+        if (String(val) !== String(rule.value)) isValid = false;
+      } else if (rule.operator === '!=') {
+        if (String(val) === String(rule.value)) isValid = false;
+      } else if (rule.operator === 'contains') {
+        if (val === null || val === undefined || !String(val).includes(String(rule.value))) isValid = false;
+      } else if (rule.operator === '>') {
+        if (Number(val) <= Number(rule.value) || isNaN(Number(val))) isValid = false;
+      } else if (rule.operator === '<') {
+        if (Number(val) >= Number(rule.value) || isNaN(Number(val))) isValid = false;
+      }
+
+      if (!isValid) break;
+    }
+
+    if (isValid) {
+      valid.push(r);
+    } else {
+      quarantined.push(r);
+    }
+  }
+
+  return { valid, quarantined };
+}
+
+// ─── Version Control Diffing ─────────────────────────────────────────────────
+export interface DiffItem {
+  type: 'added' | 'deleted' | 'modified' | 'unchanged';
+  row: DataRow;
+  changes?: Record<string, { old: any; new: any }>;
+}
+
+export function calculateDataDiff(oldRows: DataRow[], newRows: DataRow[]): DiffItem[] {
+  // Simplistic MVP Diff: compares by row stringification.
+  // In a real app, we'd use a primary key or more robust matching.
+  const oldSet = new Map(oldRows.map(r => [JSON.stringify(r), r]));
+  const newSet = new Map(newRows.map(r => [JSON.stringify(r), r]));
+
+  const diff: DiffItem[] = [];
+
+  for (const newRow of newRows) {
+    const newHash = JSON.stringify(newRow);
+    if (oldSet.has(newHash)) {
+      diff.push({ type: 'unchanged', row: newRow });
+    } else {
+      diff.push({ type: 'added', row: newRow });
+    }
+  }
+
+  for (const oldRow of oldRows) {
+    const oldHash = JSON.stringify(oldRow);
+    if (!newSet.has(oldHash)) {
+      diff.push({ type: 'deleted', row: oldRow });
+    }
+  }
+
+  return diff;
+}
+
+// ─── Export to Code ───────────────────────────────────────────────────────────
+export function generatePythonCode(appliedOps: string[], filename: string): string {
+  let code = `import pandas as pd\nimport numpy as np\n\n# Aether DataOps - Generated Pipeline\n# Load Data\ndf = pd.read_csv('${filename}')\n\n`;
+  
+  appliedOps.forEach(op => {
+    if (op === 'remove_dups') code += `df = df.drop_duplicates()\n`;
+    else if (op === 'fill_nulls') code += `df = df.fillna(df.median(numeric_only=True)).fillna('Unknown')\n`;
+    else if (op === 'drop_nulls') code += `df = df.dropna()\n`;
+    else if (op === 'trim_spaces') code += `df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)\n`;
+    else if (op === 'normalize') code += `for col in df.select_dtypes(include=np.number).columns:\n    df[col] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())\n`;
+    else if (op === 'cap_outliers') {
+      code += `\n# Cap Outliers (IQR method)\nfor col in df.select_dtypes(include=np.number).columns:\n    Q1 = df[col].quantile(0.25)\n    Q3 = df[col].quantile(0.75)\n    IQR = Q3 - Q1\n    df[col] = np.clip(df[col], Q1 - 1.5 * IQR, Q3 + 1.5 * IQR)\n`;
+    }
+    else if (op.startsWith('drop_col:')) {
+      const col = op.split(':')[1];
+      code += `df = df.drop(columns=['${col}'])\n`;
+    }
+    else if (op.startsWith('find_replace:')) {
+      const [_, col, find, replace] = op.split(':');
+      code += `df['${col}'] = df['${col}'].astype(str).str.replace('${find}', '${replace}', regex=False)\n`;
+    }
+    else if (op.startsWith('custom_formula:')) {
+      const [_, col, formula] = op.split(':');
+      code += `df['${col}'] = df.eval('${formula}')\n`;
+    }
+  });
+  
+  code += `\n# Export Cleaned Data\ndf.to_csv('cleaned_${filename}', index=False)\n`;
+  return code;
+}
+
+// ─── Interactive Pivot Tables ─────────────────────────────────────────────────
+export function aggregatePivotTable(rows: DataRow[], rowCol: string, colCol: string, valCol: string, aggType: 'sum'|'count'|'avg'): Record<string, Record<string, number>> {
+  const pivot: Record<string, Record<string, { sum: number, count: number }>> = {};
+  
+  rows.forEach(r => {
+    const rowVal = String(r[rowCol] ?? 'Unknown');
+    const colVal = String(r[colCol] ?? 'Unknown');
+    const val = Number(r[valCol]);
+    
+    if (!pivot[rowVal]) pivot[rowVal] = {};
+    if (!pivot[rowVal][colVal]) pivot[rowVal][colVal] = { sum: 0, count: 0 };
+    
+    if (!isNaN(val)) {
+      pivot[rowVal][colVal].sum += val;
+      pivot[rowVal][colVal].count += 1;
+    }
+  });
+
+  // Finalize aggregation
+  const result: Record<string, Record<string, number>> = {};
+  Object.keys(pivot).forEach(r => {
+    result[r] = {};
+    Object.keys(pivot[r]).forEach(c => {
+      const stats = pivot[r][c];
+      if (aggType === 'sum') result[r][c] = stats.sum;
+      else if (aggType === 'count') result[r][c] = stats.count;
+      else if (aggType === 'avg') result[r][c] = stats.count > 0 ? stats.sum / stats.count : 0;
+    });
+  });
+  
+  return result;
+}

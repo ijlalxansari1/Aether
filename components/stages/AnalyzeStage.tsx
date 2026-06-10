@@ -2,13 +2,16 @@
 
 import { useEffect, useState, Fragment } from 'react';
 import { ColProfile, ColumnType, DataRow } from '@/lib/types';
-import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest } from '@/lib/dataUtils';
+import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest, aggregatePivotTable } from '@/lib/dataUtils';
 import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
 import { motion } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   ScatterChart, Scatter, ZAxis, Cell
 } from 'recharts';
+import dynamic from 'next/dynamic';
+
+const MapChartDynamic = dynamic(() => import('../MapChart'), { ssr: false });
 
 interface AnalyzeStageProps {
   headers: string[];
@@ -19,8 +22,8 @@ interface AnalyzeStageProps {
   onError?: (msg: string) => void;
 }
 
-type ActiveChart = 'distribution' | 'scatter' | 'boxplot' | 'correlation' | 'abtest';
-type MainTab = 'bi' | 'sql';
+type ActiveChart = 'distribution' | 'scatter' | 'boxplot' | 'correlation' | 'abtest' | 'map';
+type MainTab = 'bi' | 'sql' | 'pivot';
 
 export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdateRows, onError }: AnalyzeStageProps) {
   const numCols = headers.filter(h => types[h] === 'number');
@@ -37,6 +40,17 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
   const [abGroupCol, setAbGroupCol] = useState(strCols[0] ?? '');
   const [abControlVal, setAbControlVal] = useState('');
   const [abVariantVal, setAbVariantVal] = useState('');
+
+  // Map State
+  const mapCols = numCols.filter(c => c.toLowerCase().includes('lat') || c.toLowerCase().includes('lng') || c.toLowerCase().includes('lon'));
+  const [mapLat, setMapLat] = useState(mapCols.find(c => c.toLowerCase().includes('lat')) || numCols[0] || '');
+  const [mapLng, setMapLng] = useState(mapCols.find(c => c.toLowerCase().includes('lon') || c.toLowerCase().includes('lng')) || numCols[1] || numCols[0] || '');
+
+  // Pivot Table State
+  const [pivotRow, setPivotRow] = useState(strCols[0] ?? headers[0] ?? '');
+  const [pivotCol, setPivotCol] = useState(strCols[1] ?? headers[1] ?? '');
+  const [pivotVal, setPivotVal] = useState(numCols[0] ?? headers[0] ?? '');
+  const [pivotAgg, setPivotAgg] = useState<'sum'|'count'|'avg'>('sum');
 
   // SQL State
   const [sqlQuery, setSqlQuery] = useState('SELECT * FROM dataset LIMIT 10;');
@@ -56,7 +70,8 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
       }
     }
     init();
-  }, [rows, onError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   async function handleRunSQL() {
     if (!dbReady) return;
@@ -161,6 +176,14 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
           📊 Exploratory Data Analysis (EDA)
           {mainTab === 'bi' && <motion.div layoutId="mainTabActive" style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }} />}
         </div>
+        <div 
+          className={`chart-tab ${mainTab === 'pivot' ? 'active' : ''}`} 
+          onClick={() => setMainTab('pivot')}
+          style={{ padding: '0 0 16px 0', color: mainTab === 'pivot' ? 'var(--cyan)' : 'var(--text-secondary)', fontSize: '15px', fontWeight: mainTab === 'pivot' ? 600 : 400, cursor: 'pointer', position: 'relative' }}
+        >
+          🧮 Pivot Table
+          {mainTab === 'pivot' && <motion.div layoutId="mainTabActive" style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }} />}
+        </div>
       </motion.div>
 
       {mainTab === 'bi' ? (
@@ -168,7 +191,7 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
           <div className="flex-between" style={{ marginBottom: '24px' }}>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>EDA Engine</h3>
             <div className="flex gap-8">
-              {(['distribution', 'scatter', 'boxplot', 'correlation', 'abtest'] as ActiveChart[]).map(t => (
+              {(['distribution', 'scatter', 'boxplot', 'correlation', 'abtest', 'map'] as ActiveChart[]).map(t => (
                 <button 
                   key={t}
                   onClick={() => setActiveChart(t)} 
@@ -231,17 +254,19 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                     </Fragment>
                   ))}
                 </div>
+              ) : activeChart === 'map' ? (
+                <MapChartDynamic data={rows} latCol={mapLat} lngCol={mapLng} />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', padding: '16px' }}>
-                  <div style={{ display: 'flex', gap: '16px' }}>
-                    <select className="search-input" value={abTargetCol} onChange={e => setAbTargetCol(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <select className="search-input" value={abTargetCol} onChange={e => setAbTargetCol(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
                       {numCols.map(c => <option key={c} value={c}>Target: {c}</option>)}
                     </select>
-                    <select className="search-input" value={abGroupCol} onChange={e => setAbGroupCol(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }}>
+                    <select className="search-input" value={abGroupCol} onChange={e => setAbGroupCol(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
                       {strCols.map(c => <option key={c} value={c}>Group By: {c}</option>)}
                     </select>
-                    <input className="search-input" placeholder="Control Group Value" value={abControlVal} onChange={e => setAbControlVal(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }} />
-                    <input className="search-input" placeholder="Variant Group Value" value={abVariantVal} onChange={e => setAbVariantVal(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-body)', color: '#fff', border: '1px solid var(--border)' }} />
+                    <input className="search-input" placeholder="Control Group Value" value={abControlVal} onChange={e => setAbControlVal(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }} />
+                    <input className="search-input" placeholder="Variant Group Value" value={abVariantVal} onChange={e => setAbVariantVal(e.target.value)} style={{ padding: '8px', borderRadius: '8px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }} />
                   </div>
                   {abTestResults && (
                     <div style={{ background: 'var(--bg-body)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border)' }}>
@@ -262,6 +287,62 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
             </ResponsiveContainer>
           </div>
         </motion.div>
+      ) : mainTab === 'pivot' ? (
+        <motion.div variants={itemVariants} className="card chart-card">
+          <div className="flex-between" style={{ marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Interactive Pivot Table</h3>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <select className="search-input" value={pivotRow} onChange={e => setPivotRow(e.target.value)} style={{ padding: '6px', borderRadius: '6px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', fontSize: '13px' }}>
+                {headers.map(c => <option key={c} value={c}>Row: {c}</option>)}
+              </select>
+              <select className="search-input" value={pivotCol} onChange={e => setPivotCol(e.target.value)} style={{ padding: '6px', borderRadius: '6px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', fontSize: '13px' }}>
+                {headers.map(c => <option key={c} value={c}>Column: {c}</option>)}
+              </select>
+              <select className="search-input" value={pivotVal} onChange={e => setPivotVal(e.target.value)} style={{ padding: '6px', borderRadius: '6px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', fontSize: '13px' }}>
+                {numCols.map(c => <option key={c} value={c}>Value: {c}</option>)}
+              </select>
+              <select className="search-input" value={pivotAgg} onChange={e => setPivotAgg(e.target.value as any)} style={{ padding: '6px', borderRadius: '6px', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', fontSize: '13px' }}>
+                <option value="sum">Sum</option>
+                <option value="count">Count</option>
+                <option value="avg">Average</option>
+              </select>
+            </div>
+          </div>
+          <div className="table-container" style={{ maxHeight: '500px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+            {(() => {
+              const pivotData = aggregatePivotTable(rows, pivotRow, pivotCol, pivotVal, pivotAgg);
+              const rowKeys = Object.keys(pivotData);
+              const colKeys = Array.from(new Set(rowKeys.flatMap(r => Object.keys(pivotData[r]))));
+              if (rowKeys.length === 0 || colKeys.length === 0) return <div style={{ padding: 20 }}>No data to aggregate</div>;
+              
+              return (
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '13px' }}>
+                  <thead style={{ background: 'var(--bg-body)', position: 'sticky', top: 0, zIndex: 1 }}>
+                    <tr>
+                      <th style={{ padding: '12px', borderBottom: '1px solid var(--border)', textAlign: 'left', fontWeight: 600 }}>{pivotRow} \ {pivotCol}</th>
+                      {colKeys.map(c => <th key={c} style={{ padding: '12px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>{c}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rowKeys.map((r, idx) => (
+                      <tr key={r} style={{ background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'left', fontWeight: 600 }}>{r}</td>
+                        {colKeys.map(c => {
+                          const val = pivotData[r][c];
+                          return (
+                            <td key={c} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: val !== undefined ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                              {val !== undefined ? (Math.abs(val) > 1000 ? val.toFixed(1) : parseFloat(val.toFixed(2))) : '-'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
+          </div>
+        </motion.div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
           <div className="card">
@@ -280,6 +361,17 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                 <button className="btn btn-secondary" onClick={handleApplySQL} style={{ background: 'var(--emerald)', color: '#fff', border: 'none' }}>
                   Apply as New Dataset
                 </button>
+              )}
+
+              {activeChart === 'map' && (
+                <>
+                  <select className="select-input" value={mapLat} onChange={e => setMapLat(e.target.value)}>
+                    {numCols.map(h => <option key={h} value={h}>{h} (Lat)</option>)}
+                  </select>
+                  <select className="select-input" value={mapLng} onChange={e => setMapLng(e.target.value)}>
+                    {numCols.map(h => <option key={h} value={h}>{h} (Lng)</option>)}
+                  </select>
+                </>
               )}
             </div>
           </div>

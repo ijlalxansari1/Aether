@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import { DataRow, DataSchema } from '@/lib/types';
-import { exportCSV, isPII } from '@/lib/dataUtils';
+import { DataRow, DataSchema, DataContractRule } from '@/lib/types';
+import { exportCSV, isPII, validateDataContract } from '@/lib/dataUtils';
 import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -105,12 +105,47 @@ export default function StoreStage({ datasets, headers, schema, rows, filename, 
     return set;
   }, [headers, rows]);
 
-  // Filter
   const filtered = useMemo(() => {
     if (!search.trim()) return rows;
     const q = search.toLowerCase();
     return rows.filter(r => Object.values(r).some(v => String(v ?? '').toLowerCase().includes(q)));
   }, [rows, search]);
+
+  // Data Contracts State
+  const [contractRules, setContractRules] = useState<DataContractRule[]>([]);
+  const [ruleCol, setRuleCol] = useState('');
+  const [ruleOp, setRuleOp] = useState<DataContractRule['operator']>('not_null');
+  const [ruleVal, setRuleVal] = useState('');
+  const [quarantinedCount, setQuarantinedCount] = useState(0);
+
+  function handleAddRule() {
+    if (!ruleCol) return;
+    const newRule: DataContractRule = {
+      id: Math.random().toString(36).substring(7),
+      column: ruleCol,
+      operator: ruleOp,
+      value: ruleVal
+    };
+    const newRules = [...contractRules, newRule];
+    setContractRules(newRules);
+    applyContracts(newRules);
+  }
+
+  function handleRemoveRule(id: string) {
+    const newRules = contractRules.filter(r => r.id !== id);
+    setContractRules(newRules);
+    // Since we permanently remove quarantined rows in onUpdateRows for MVP, 
+    // removing a rule won't automatically bring them back unless we reload data.
+    // But we will apply the new set anyway (which does nothing to already dropped rows).
+  }
+
+  function applyContracts(rules: DataContractRule[]) {
+    const { valid, quarantined } = validateDataContract(rows, rules);
+    setQuarantinedCount(prev => prev + quarantined.length);
+    if (quarantined.length > 0) {
+      onUpdateRows(headers, valid);
+    }
+  }
 
   // Sort
   const sorted = useMemo(() => {
@@ -248,16 +283,73 @@ export default function StoreStage({ datasets, headers, schema, rows, filename, 
             ['File', filename],
             ['Format', 'Structured JSON'],
             ['Size', `~${(bytes / 1024).toFixed(1)} KB`],
-            ['Null Values', nullTotal],
-            ['Unique Rows', new Set(rows.map(r => JSON.stringify(r))).size],
-            ['Ingested', ingestedAt?.toLocaleString() ?? '—'],
           ].map(([k, v]) => (
-            <div key={String(k)} className="meta-row">
-              <span className="meta-key">{k}</span>
-              <span className="meta-val">{v}</span>
+            <div key={k} className="flex-between" style={{ padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+              <span style={{ fontFamily: 'monospace', color: 'var(--cyan)' }}>{v}</span>
             </div>
           ))}
         </div>
+      </motion.div>
+
+      {/* Data Contracts Section */}
+      <motion.div variants={itemVariants} className="card" style={{ marginBottom: '32px', borderColor: 'var(--violet)' }}>
+        <div className="card-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          🛡️ Data Quality Contracts
+          {quarantinedCount > 0 && (
+            <span style={{ background: 'var(--rose)', color: '#fff', padding: '2px 8px', borderRadius: '12px', fontSize: '11px' }}>
+              {quarantinedCount} Quarantined
+            </span>
+          )}
+        </div>
+        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+          Define strict validation rules. Rows failing these conditions are automatically quarantined and dropped from the active dataset.
+        </p>
+
+        <div className="flex gap-8" style={{ marginBottom: '16px', alignItems: 'center' }}>
+          <select className="select-input" value={ruleCol} onChange={e => setRuleCol(e.target.value)} style={{ width: '200px' }}>
+            <option value="">-- Select Column --</option>
+            {headers.map(h => <option key={h} value={h}>{h}</option>)}
+          </select>
+
+          <select className="select-input" value={ruleOp} onChange={e => setRuleOp(e.target.value as any)} style={{ width: '150px' }}>
+            <option value="not_null">Is Not Null</option>
+            <option value=">">Greater Than</option>
+            <option value="<">Less Than</option>
+            <option value="==">Equals</option>
+            <option value="!=">Not Equals</option>
+            <option value="contains">Contains</option>
+          </select>
+
+          {ruleOp !== 'not_null' && (
+            <input 
+              type="text" 
+              className="text-input" 
+              placeholder="Value..." 
+              value={ruleVal} 
+              onChange={e => setRuleVal(e.target.value)} 
+              style={{ width: '200px' }}
+            />
+          )}
+
+          <button className="btn btn-primary" onClick={handleAddRule} disabled={!ruleCol} style={{ background: 'var(--violet)' }}>+ Add Rule</button>
+        </div>
+
+        {contractRules.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {contractRules.map(rule => (
+              <div key={rule.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: '8px' }}>
+                <div style={{ fontSize: '13px' }}>
+                  <strong style={{ color: 'var(--violet)' }}>{rule.column}</strong> 
+                  <span style={{ opacity: 0.7, margin: '0 8px' }}>MUST BE</span> 
+                  <strong style={{ color: 'var(--cyan)' }}>{rule.operator}</strong> 
+                  {rule.operator !== 'not_null' && <span style={{ marginLeft: '8px', fontFamily: 'monospace', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px' }}>{rule.value}</span>}
+                </div>
+                <button className="btn btn-sm" onClick={() => handleRemoveRule(rule.id)} style={{ color: 'var(--rose)', borderColor: 'var(--rose)', background: 'transparent' }}>Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Data table with search + column toggle */}

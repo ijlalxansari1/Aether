@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { DataRow, QualityIssue, ColumnType } from '@/lib/types';
-import { calcDQScore, findReplace } from '@/lib/dataUtils';
+import { calcDQScore, findReplace, calculateDataDiff } from '@/lib/dataUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CLEANING_OPS: { id: string; icon: string; title: string; desc: string }[] = [
@@ -19,25 +19,32 @@ interface CleanStageProps {
   types: Record<string, ColumnType>;
   rawRows: DataRow[];
   cleanedRows: DataRow[];
+  previousRows?: DataRow[];
   issues: QualityIssue[];
   appliedOps: Set<string>;
   onApplyOp: (id: string) => void;
   onApplyAll: () => void;
   onFindReplace: (col: string, find: string, replace: string) => void;
   onDropColumn: (col: string) => void;
+  onCustomFormula?: (newCol: string, formula: string) => void;
+  onDetectAnomalies?: () => void;
+  filename?: string;
   onProceed: () => void;
   rowHistoryLength?: number;
   onTimeTravel?: (index: number) => void;
 }
 
 export default function CleanStage({
-  headers, types, rawRows, cleanedRows, issues, appliedOps, onApplyOp, onApplyAll, onFindReplace, onDropColumn, onProceed, rowHistoryLength = 0, onTimeTravel
+  headers, types, rawRows, cleanedRows, previousRows, issues, appliedOps, onApplyOp, onApplyAll, onFindReplace, onDropColumn, onProceed, rowHistoryLength = 0, onTimeTravel, onCustomFormula, onDetectAnomalies, filename
 }: CleanStageProps) {
   const [findCol, setFindCol] = useState(headers[0] ?? '');
   const [findVal, setFindVal] = useState('');
   const [replaceVal, setReplaceVal] = useState('');
   const [dropConfirm, setDropConfirm] = useState<string | null>(null);
+  const [formulaCol, setFormulaCol] = useState('');
+  const [formulaText, setFormulaText] = useState('');
   const [activeTab, setActiveTab] = useState<'ops' | 'advanced'>('ops');
+  const [showDiff, setShowDiff] = useState(false);
 
   const dqScore = calcDQScore(cleanedRows, headers, appliedOps.size);
   const dqColor = dqScore >= 80 ? 'var(--emerald)' : dqScore >= 60 ? 'var(--amber)' : 'var(--rose)';
@@ -137,6 +144,28 @@ export default function CleanStage({
               );
             })}
           </div>
+
+          <div className="card">
+            <div className="card-label">Export</div>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+              Translate your visual operations into a production-ready Python script.
+            </p>
+            <button 
+              className="btn btn-secondary" 
+              style={{ width: '100%', borderColor: 'var(--violet)', color: 'var(--violet)' }}
+              onClick={async () => {
+                const { generatePythonCode } = await import('@/lib/dataUtils');
+                const code = generatePythonCode(Array.from(appliedOps), filename || 'dataset.csv');
+                const blob = new Blob([code], { type: 'text/plain' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `clean_${filename || 'dataset'}.py`;
+                a.click();
+              }}
+            >
+              🐍 Eject to Python
+            </button>
+          </div>
         </div>
 
         {/* Right — ops + advanced */}
@@ -232,6 +261,46 @@ export default function CleanStage({
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>Click a column to confirm dropping it from the dataset</div>
                 </div>
+
+                {/* Custom Formula */}
+                <div className="adv-section" style={{ marginTop: 20 }}>
+                  <div className="adv-title">🧮 Custom Formula</div>
+                  <div className="adv-row">
+                    <label className="adv-label">New Column</label>
+                    <input className="adv-input" placeholder="e.g. Total_Cost" value={formulaCol} onChange={e => setFormulaCol(e.target.value)} />
+                  </div>
+                  <div className="adv-row">
+                    <label className="adv-label">Formula</label>
+                    <input className="adv-input" placeholder="e.g. price * quantity" value={formulaText} onChange={e => setFormulaText(e.target.value)} />
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: 10 }}
+                    disabled={!formulaCol || !formulaText}
+                    onClick={() => {
+                      if (onCustomFormula) onCustomFormula(formulaCol, formulaText);
+                      setFormulaCol(''); setFormulaText('');
+                    }}
+                  >
+                    Compute Formula
+                  </button>
+                </div>
+
+                {/* Statistical Anomaly Detection */}
+                <div className="adv-section" style={{ marginTop: 20 }}>
+                  <div className="adv-title">🎯 Anomaly Detection</div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
+                    Automatically scan all numeric columns using Z-score (3σ) to find and remove statistical outliers.
+                  </p>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => {
+                      if (onDetectAnomalies) onDetectAnomalies();
+                    }}
+                  >
+                    Scan & Remove Anomalies
+                  </button>
+                </div>
               </motion.div>
             )}
           </div>
@@ -277,9 +346,57 @@ export default function CleanStage({
             />
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Present</span>
           </div>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '12px', marginBottom: 0 }}>
-            Drag the slider backward to instantly revert the dataset and all data quality checks to a previous state before an operation was applied.
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: 0 }}>
+              Drag the slider backward to instantly revert the dataset and all data quality checks to a previous state before an operation was applied.
+            </p>
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowDiff(!showDiff)}
+            >
+              {showDiff ? 'Hide Diff' : 'View Changes (Diff)'}
+            </button>
+          </div>
+
+          {showDiff && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} style={{ marginTop: '24px', overflow: 'hidden' }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Changes from previous step:</div>
+              <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-body)', zIndex: 10 }}>
+                    <tr>
+                      <th style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>Status</th>
+                      {headers.slice(0, 5).map(h => (
+                        <th key={h} style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                      ))}
+                      {headers.length > 5 && <th style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>...</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {calculateDataDiff(previousRows || rawRows, cleanedRows)
+                      .filter(d => d.type !== 'unchanged')
+                      .map((d, i) => (
+                        <tr key={i} style={{ 
+                          background: d.type === 'added' ? 'rgba(16,185,129,0.1)' : d.type === 'deleted' ? 'rgba(244,63,94,0.1)' : 'transparent',
+                          color: d.type === 'added' ? 'var(--emerald)' : d.type === 'deleted' ? 'var(--rose)' : 'var(--text-primary)'
+                        }}>
+                          <td style={{ padding: '8px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>{d.type.toUpperCase()}</td>
+                          {headers.slice(0, 5).map(h => (
+                            <td key={h} style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>{String(d.row[h] ?? '')}</td>
+                          ))}
+                          {headers.length > 5 && <td style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>...</td>}
+                        </tr>
+                      ))}
+                    {calculateDataDiff(previousRows || rawRows, cleanedRows).filter(d => d.type !== 'unchanged').length === 0 && (
+                      <tr>
+                        <td colSpan={headers.length + 1} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>No changes detected in this step.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
         </motion.div>
       )}
 

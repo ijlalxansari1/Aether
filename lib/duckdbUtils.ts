@@ -42,8 +42,16 @@ export async function executeQuery(db: duckdb.AsyncDuckDB, query: string): Promi
   const arrowResult = await conn.query(query);
   await conn.close();
   
-  // Arrow to JSON array
-  return arrowResult.toArray().map((row: any) => row.toJSON());
+  // Arrow to JSON array, and convert BigInt to Number
+  return arrowResult.toArray().map((row: any) => {
+    const obj = row.toJSON();
+    for (const key in obj) {
+      if (typeof obj[key] === 'bigint') {
+        obj[key] = Number(obj[key]);
+      }
+    }
+    return obj;
+  });
 }
 
 export async function exportToParquet(db: duckdb.AsyncDuckDB, tableName: string): Promise<Uint8Array> {
