@@ -19,6 +19,7 @@ interface CleanStageProps {
   types: Record<string, ColumnType>;
   rawRows: DataRow[];
   cleanedRows: DataRow[];
+  quarantinedRows?: DataRow[];
   previousRows?: DataRow[];
   issues: QualityIssue[];
   appliedOps: Set<string>;
@@ -32,10 +33,14 @@ interface CleanStageProps {
   onProceed: () => void;
   rowHistoryLength?: number;
   onTimeTravel?: (index: number) => void;
+  onRestoreQuarantine?: () => void;
+  onDropQuarantine: () => void;
+  onConsolidateCategories: (col: string) => void;
+  onAddDataset?: () => void;
 }
 
 export default function CleanStage({
-  headers, types, rawRows, cleanedRows, previousRows, issues, appliedOps, onApplyOp, onApplyAll, onFindReplace, onDropColumn, onProceed, rowHistoryLength = 0, onTimeTravel, onCustomFormula, onDetectAnomalies, filename
+  headers, types, rawRows, cleanedRows, quarantinedRows = [], previousRows, issues, appliedOps, onApplyOp, onApplyAll, onFindReplace, onDropColumn, onProceed, rowHistoryLength = 0, onTimeTravel, onCustomFormula, onDetectAnomalies, filename, onRestoreQuarantine, onDropQuarantine, onConsolidateCategories, onAddDataset
 }: CleanStageProps) {
   const [findCol, setFindCol] = useState(headers[0] ?? '');
   const [findVal, setFindVal] = useState('');
@@ -43,7 +48,8 @@ export default function CleanStage({
   const [dropConfirm, setDropConfirm] = useState<string | null>(null);
   const [formulaCol, setFormulaCol] = useState('');
   const [formulaText, setFormulaText] = useState('');
-  const [activeTab, setActiveTab] = useState<'ops' | 'advanced'>('ops');
+  const [consolidationCol, setConsolidationCol] = useState('');
+  const [activeTab, setActiveTab] = useState<'ops' | 'advanced' | 'quarantine'>('ops');
   const [showDiff, setShowDiff] = useState(false);
 
   const dqScore = calcDQScore(cleanedRows, headers, appliedOps.size);
@@ -76,23 +82,43 @@ export default function CleanStage({
           </h1>
           <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>Detect and resolve nulls, duplicates, outliers — plus advanced find/replace and column management.</p>
         </div>
-        <motion.button 
-          className="btn btn-primary" 
-          onClick={onProceed} 
-          whileHover={{ color: '#fcd34d', scale: 1.02 }}
-          style={{ 
-            background: 'linear-gradient(135deg, var(--violet, #7c3aed), var(--accent, #6366f1))', 
-            border: 'none', 
-            color: '#fff', 
-            boxShadow: '0 0 20px rgba(139,92,246,0.4)',
-            padding: '12px 24px',
-            borderRadius: '8px',
-            fontWeight: 600,
-            cursor: 'pointer'
-          }}
-        >
-          Analyze Data →
-        </motion.button>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          {onAddDataset && (
+            <motion.button 
+              className="btn btn-secondary" 
+              onClick={onAddDataset} 
+              whileHover={{ scale: 1.02 }}
+              style={{ 
+                background: 'var(--surface)', 
+                border: '1px solid var(--border)', 
+                color: 'var(--text)', 
+                padding: '12px 24px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              ➕ Add Dataset
+            </motion.button>
+          )}
+          <motion.button 
+            className="btn btn-primary" 
+            onClick={onProceed} 
+            whileHover={{ color: '#fcd34d', scale: 1.02 }}
+            style={{ 
+              background: 'linear-gradient(135deg, var(--violet, #7c3aed), var(--accent, #6366f1))', 
+              border: 'none', 
+              color: '#fff', 
+              boxShadow: '0 0 20px rgba(139,92,246,0.4)',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+          >
+            Analyze Data →
+          </motion.button>
+        </div>
       </motion.div>
 
       <motion.div variants={itemVariants} className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
@@ -175,6 +201,10 @@ export default function CleanStage({
             <div className="flex gap-8" style={{ marginBottom: 16 }}>
               <button className={`chart-tab ${activeTab === 'ops' ? 'active' : ''}`} onClick={() => setActiveTab('ops')}>Cleaning Ops</button>
               <button className={`chart-tab ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>Advanced Tools</button>
+              <button className={`chart-tab ${activeTab === 'quarantine' ? 'active' : ''}`} onClick={() => setActiveTab('quarantine')}>
+                Quarantine Vault
+                {quarantinedRows.length > 0 && <span style={{ marginLeft: 8, background: 'var(--rose)', color: '#fff', padding: '2px 6px', borderRadius: '10px', fontSize: '11px' }}>{quarantinedRows.length}</span>}
+              </button>
             </div>
 
             {activeTab === 'ops' && (
@@ -286,6 +316,32 @@ export default function CleanStage({
                   </button>
                 </div>
 
+                {/* Intelligent Fuzzy Consolidation */}
+                <div className="adv-section" style={{ marginTop: 20 }}>
+                  <div className="adv-title">🧠 Smart Consolidation</div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
+                    Automatically detect and group typos or near-identical text categories (e.g. <i>"New York"</i>, <i>"new york"</i>, <i>"NY"</i>).
+                  </p>
+                  <div className="adv-row">
+                    <label className="adv-label">Column</label>
+                    <select className="adv-select" value={consolidationCol} onChange={e => setConsolidationCol(e.target.value)}>
+                      <option value="">Select text column...</option>
+                      {strCols.map(h => <option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: 10, background: 'rgba(139, 92, 246, 0.1)', borderColor: 'var(--violet)', color: 'var(--violet)' }}
+                    disabled={!consolidationCol}
+                    onClick={() => {
+                      if (onConsolidateCategories) onConsolidateCategories(consolidationCol);
+                      setConsolidationCol('');
+                    }}
+                  >
+                    ✨ Consolidate Typos
+                  </button>
+                </div>
+
                 {/* Statistical Anomaly Detection */}
                 <div className="adv-section" style={{ marginTop: 20 }}>
                   <div className="adv-title">🎯 Anomaly Detection</div>
@@ -300,6 +356,42 @@ export default function CleanStage({
                   >
                     Scan & Remove Anomalies
                   </button>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'quarantine' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} className="advanced-tools">
+                <div className="adv-section" style={{ background: 'rgba(244, 63, 94, 0.05)', borderColor: 'rgba(244, 63, 94, 0.2)' }}>
+                  <div className="adv-title" style={{ color: 'var(--rose)' }}>🚨 Quarantine Vault</div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                    {quarantinedRows.length > 0 
+                      ? `${quarantinedRows.length} rows were automatically quarantined during ingestion due to missing values or structural corruption.` 
+                      : `No corrupted rows found!`}
+                  </p>
+                  
+                  {quarantinedRows.length > 0 && (
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ flex: 1, background: 'var(--rose)', borderColor: 'var(--rose)', color: '#fff' }}
+                        onClick={() => {
+                          if (onDropQuarantine) onDropQuarantine();
+                        }}
+                      >
+                        🗑 Drop Forever
+                      </button>
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ flex: 1 }}
+                        onClick={() => {
+                          if (onRestoreQuarantine) onRestoreQuarantine();
+                        }}
+                      >
+                        ♻️ Restore to Main
+                      </button>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

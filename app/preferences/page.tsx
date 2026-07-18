@@ -1,14 +1,11 @@
 'use client';
-import GlobalSidebar from '@/components/GlobalSidebar';
 import { useTheme } from '@/components/ThemeProvider';
 
 export default function PreferencesPage() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="app-layout">
-      <GlobalSidebar />
-      <div className="app-root" style={{ padding: '40px', maxWidth: '800px', margin: '0 auto', overflowY: 'auto' }}>
+    <div style={{ padding: '40px', maxWidth: '800px', margin: '0 auto', overflowY: 'auto' }}>
         <header style={{ marginBottom: '40px' }}>
           <h1 style={{ fontSize: '32px', fontWeight: 700, marginBottom: '8px' }}>Preferences</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '16px' }}>Manage your platform settings and aesthetic themes.</p>
@@ -48,7 +45,6 @@ export default function PreferencesPage() {
           </div>
         </section>
 
-      </div>
     </div>
   );
 }

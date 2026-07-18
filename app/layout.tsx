@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
+import GlobalSidebar from '@/components/GlobalSidebar';
 
 export const metadata: Metadata = {
   title: 'Aether — End-to-End DataOps Platform',
@@ -17,7 +18,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body><ThemeProvider>{children}</ThemeProvider></body>
+      <body>
+        <ThemeProvider>
+          <div className="app-layout">
+            <GlobalSidebar />
+            <div className="app-root" style={{ flex: 1, overflowY: 'auto' }}>
+              {children}
+            </div>
+          </div>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

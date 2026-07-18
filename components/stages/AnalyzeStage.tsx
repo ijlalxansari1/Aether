@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Fragment } from 'react';
 import { ColProfile, ColumnType, DataRow } from '@/lib/types';
-import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest, aggregatePivotTable } from '@/lib/dataUtils';
+import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest, aggregatePivotTable, findTopCorrelations } from '@/lib/dataUtils';
 import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
 import { motion } from 'framer-motion';
 import {
@@ -203,6 +203,84 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
             </div>
           </div>
           
+          {/* Smart Insights Panel */}
+          {activeChart === 'correlation' && (
+            <div style={{ marginBottom: '24px', padding: '16px', background: 'rgba(139, 92, 246, 0.05)', border: '1px solid var(--violet)', borderRadius: '8px' }}>
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: 'var(--violet)' }}>✨ Smart Correlation Insights</h4>
+              {(() => {
+                const topCors = findTopCorrelations(rows, numCols);
+                if (topCors.length === 0) return <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>No strong linear correlations detected.</p>;
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {topCors.map((c, i) => (
+                      <div key={i} className="flex-between" style={{ fontSize: '13px', background: 'var(--bg-card)', padding: '8px 12px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <div>
+                          <strong>{c.col1}</strong> and <strong>{c.col2}</strong> are {c.score > 0 ? 'positively' : 'negatively'} correlated 
+                          <span style={{ color: 'var(--text-secondary)', marginLeft: '4px' }}>(r = {c.score.toFixed(2)})</span>
+                        </div>
+                        <button 
+                          className="btn btn-sm" 
+                          style={{ background: 'var(--violet)', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}
+                          onClick={() => {
+                            setScatterX(c.col1);
+                            setScatterY(c.col2);
+                            setActiveChart('scatter');
+                          }}
+                        >
+                          View Scatter
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Dynamic Chart Controls & Summary Stats */}
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap', background: 'var(--bg-body)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            {activeChart === 'distribution' && (
+              <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Target Column</span>
+                <select className="input" value={activeDistCol} onChange={e => setActiveDistCol(e.target.value)} style={{ padding: '6px', borderRadius: '6px', width: '200px' }}>
+                  {numCols.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                {(() => {
+                  if (distVals.length > 0) {
+                    const mean = distVals.reduce((a,b)=>a+b,0)/distVals.length;
+                    return (
+                      <div style={{ display: 'flex', gap: '16px', marginLeft: '16px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                        <span><strong>Min:</strong> {min.toFixed(2)}</span>
+                        <span><strong>Max:</strong> {max.toFixed(2)}</span>
+                        <span><strong>Mean:</strong> {mean.toFixed(2)}</span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
+            {activeChart === 'scatter' && (
+              <>
+                <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>X-Axis</span>
+                  <select className="input" value={scatterX} onChange={e => setScatterX(e.target.value)} style={{ padding: '6px', borderRadius: '6px', width: '150px' }}>
+                    {numCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Y-Axis</span>
+                  <select className="input" value={scatterY} onChange={e => setScatterY(e.target.value)} style={{ padding: '6px', borderRadius: '6px', width: '150px' }}>
+                    {numCols.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
+            {activeChart !== 'distribution' && activeChart !== 'scatter' && (
+               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Configure chart parameters via the visual controls below.</span>
+            )}
+          </div>
+
           <div style={{ height: '400px' }}>
             <ResponsiveContainer width="100%" height="100%">
               {activeChart === 'distribution' ? (
@@ -315,6 +393,19 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
               const colKeys = Array.from(new Set(rowKeys.flatMap(r => Object.keys(pivotData[r]))));
               if (rowKeys.length === 0 || colKeys.length === 0) return <div style={{ padding: 20 }}>No data to aggregate</div>;
               
+              let minVal = Infinity;
+              let maxVal = -Infinity;
+              rowKeys.forEach(r => {
+                colKeys.forEach(c => {
+                  const val = pivotData[r][c];
+                  if (val !== undefined) {
+                    if (val < minVal) minVal = val;
+                    if (val > maxVal) maxVal = val;
+                  }
+                });
+              });
+              const range = maxVal - minVal || 1;
+
               return (
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'right', fontSize: '13px' }}>
                   <thead style={{ background: 'var(--bg-body)', position: 'sticky', top: 0, zIndex: 1 }}>
@@ -329,8 +420,13 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                         <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', textAlign: 'left', fontWeight: 600 }}>{r}</td>
                         {colKeys.map(c => {
                           const val = pivotData[r][c];
+                          let bg = 'transparent';
+                          if (val !== undefined) {
+                            const intensity = (val - minVal) / range;
+                            bg = `rgba(139, 92, 246, ${intensity * 0.6})`;
+                          }
                           return (
-                            <td key={c} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', color: val !== undefined ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                            <td key={c} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: bg, color: val !== undefined ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                               {val !== undefined ? (Math.abs(val) > 1000 ? val.toFixed(1) : parseFloat(val.toFixed(2))) : '-'}
                             </td>
                           );

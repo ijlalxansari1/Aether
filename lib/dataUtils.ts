@@ -1,6 +1,51 @@
 import { ColumnType, DataRow, ColProfile, QualityIssue } from './types';
 
 // ─── Type Inference ──────────────────────────────────────────────────────────
+export function isSmartNumber(v: unknown): boolean {
+  if (typeof v === 'number') return true;
+  if (typeof v !== 'string') return false;
+  const str = v.trim();
+  if (str === '') return false;
+  const clean = str.replace(/[$,%€£\s]/g, '');
+  return !isNaN(Number(clean)) && clean !== '';
+}
+
+export function smartCastValue(v: unknown): unknown {
+  if (typeof v === 'number') return v;
+  if (typeof v !== 'string') return v;
+  const str = v.trim();
+  if (str === '') return v;
+  const clean = str.replace(/[$,%€£\s]/g, '');
+  if (!isNaN(Number(clean)) && clean !== '') {
+    if (str.endsWith('%')) return Number(clean) / 100;
+    return Number(clean);
+  }
+  return v;
+}
+
+export function smartCastData(rows: DataRow[], headers: string[]): DataRow[] {
+  // Determine which string columns are actually "smart numbers"
+  const smartCols = new Set<string>();
+  for (const h of headers) {
+    const nonNull = rows.filter(r => r[h] !== null && r[h] !== undefined && r[h] !== '');
+    if (nonNull.length > 0 && nonNull.every(r => isSmartNumber(r[h]))) {
+      smartCols.add(h);
+    }
+  }
+
+  if (smartCols.size === 0) return rows;
+
+  return rows.map(r => {
+    const newRow = { ...r };
+    for (const h of smartCols) {
+      if (newRow[h] !== null && newRow[h] !== undefined && newRow[h] !== '') {
+        newRow[h] = smartCastValue(newRow[h]) as string | number | boolean | null;
+      }
+    }
+    return newRow;
+  });
+}
+
 export function inferType(values: unknown[]): ColumnType {
   const nonNull = values.filter(v => v !== null && v !== undefined && v !== '');
   if (!nonNull.length) return 'string';
@@ -88,6 +133,72 @@ export function detectIssues(headers: string[], rows: DataRow[], types: Record<s
   });
 
   return issues;
+}
+
+// ─── Intelligent Clean Ops ──────────────────────────────────────────────────────
+
+export function levenshteinDistance(a: string, b: string): number {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+}
+
+export function consolidateCategories(rows: DataRow[], col: string, maxDistance: number = 2): DataRow[] {
+  // Find all unique non-null string values
+  const uniqueVals = Array.from(new Set(
+    rows.map(r => r[col]).filter(v => typeof v === 'string' && v.trim() !== '') as string[]
+  ));
+  
+  if (uniqueVals.length < 2) return rows;
+
+  // We map variations to their most frequent/standard representation
+  // First, find frequencies
+  const freqs: Record<string, number> = {};
+  rows.forEach(r => {
+    const val = r[col];
+    if (typeof val === 'string') freqs[val] = (freqs[val] || 0) + 1;
+  });
+
+  const sortedUnique = uniqueVals.sort((a, b) => freqs[b] - freqs[a]);
+  const mapping: Record<string, string> = {};
+
+  for (let i = 0; i < sortedUnique.length; i++) {
+    const target = sortedUnique[i];
+    if (mapping[target]) continue; // Already mapped
+    mapping[target] = target; // Maps to itself
+
+    for (let j = i + 1; j < sortedUnique.length; j++) {
+      const candidate = sortedUnique[j];
+      if (mapping[candidate]) continue; // Already mapped
+      
+      const dist = levenshteinDistance(target, candidate);
+      // We allow up to maxDistance edits, or a strict substring match for things like (NY vs N.Y.)
+      if (dist <= maxDistance || target.replace(/[^a-zA-Z]/g, '').toLowerCase() === candidate.replace(/[^a-zA-Z]/g, '').toLowerCase()) {
+        mapping[candidate] = target;
+      }
+    }
+  }
+
+  // Apply mapping
+  return rows.map(r => {
+    if (typeof r[col] === 'string' && mapping[r[col]]) {
+      return { ...r, [col]: mapping[r[col]] };
+    }
+    return r;
+  });
 }
 
 // ─── Cleaning Operations ─────────────────────────────────────────────────────
@@ -280,6 +391,25 @@ export function simulateABTest(targetCol: string, groupCol: string, controlVal: 
     pValue,
     significant: pValue < 0.05
   };
+}
+
+// ─── Statistical Correlation Methods ─────────────────────────────────────────
+
+export function findTopCorrelations(rows: DataRow[], numCols: string[]): {col1: string, col2: string, score: number}[] {
+  const pairs: {col1: string, col2: string, score: number}[] = [];
+  if (numCols.length < 2) return pairs;
+  
+  for (let i = 0; i < numCols.length; i++) {
+    for (let j = i + 1; j < numCols.length; j++) {
+      const score = calcPearsonCorrelation(numCols[i], numCols[j], rows);
+      if (!isNaN(score) && Math.abs(score) > 0.5) { // Only keep interesting correlations
+        pairs.push({ col1: numCols[i], col2: numCols[j], score });
+      }
+    }
+  }
+  
+  // Sort by highest absolute correlation first
+  return pairs.sort((a, b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 5); // top 5
 }
 
 // ─── Custom Formula Engine ───────────────────────────────────────────────────
@@ -476,4 +606,27 @@ export function aggregatePivotTable(rows: DataRow[], rowCol: string, colCol: str
   });
   
   return result;
+}
+
+export function splitQuarantine(headers: string[], rows: DataRow[]): { cleanRows: DataRow[], quarantinedRows: DataRow[] } {
+  const cleanRows: DataRow[] = [];
+  const quarantinedRows: DataRow[] = [];
+
+  rows.forEach(row => {
+    let nullCount = 0;
+    headers.forEach(h => {
+      const val = row[h];
+      if (val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))) {
+        nullCount++;
+      }
+    });
+
+    if (nullCount > 0) {
+      quarantinedRows.push(row);
+    } else {
+      cleanRows.push(row);
+    }
+  });
+
+  return { cleanRows, quarantinedRows };
 }

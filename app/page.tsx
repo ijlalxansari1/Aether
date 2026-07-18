@@ -19,7 +19,7 @@ import LandingHero from '@/components/LandingHero';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import PathSelectionStage from '@/components/stages/PathSelectionStage';
 import { Stage, UserPath, DataRow, DataSchema } from '@/lib/types';
-import { inferTypes, detectIssues, applyCleanOp, profileColumn, findReplace, dropColumn } from '@/lib/dataUtils';
+import { inferTypes, detectIssues, applyCleanOp, profileColumn, findReplace, dropColumn, splitQuarantine, smartCastData } from '@/lib/dataUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CLEANING_ALL = ['remove_dups', 'fill_nulls', 'cap_outliers', 'trim_spaces', 'normalize', 'fix_types'];
@@ -31,6 +31,7 @@ export default function AetherApp() {
   const [headers, setHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<DataRow[]>([]);
   const [cleanedRows, setCleanedRows] = useState<DataRow[]>([]);
+  const [quarantinedRows, setQuarantinedRows] = useState<DataRow[]>([]);
   const [types, setTypes] = useState<Record<string, ReturnType<typeof inferTypes>[string]>>({});
   const [schema, setSchema] = useState<DataSchema[]>([]);
   const [filename, setFilename] = useState('');
@@ -86,27 +87,33 @@ export default function AetherApp() {
     localforage.getItem('aether_workspace').then(data => {
       if (data) setHasSavedSession(true);
     });
-    // Optional: check if user session cookie exists by doing a quick fetch to /api/workspaces
-    fetch('/api/workspaces').then(res => res.json()).then(data => {
-      if (data.success) {
-        setUser({ id: 0, email: 'Connected User' }); // Basic mock user state, JWT is in cookie
-      }
-    }).catch(() => {});
+    // Check if user session cookie exists before fetching
+    if (document.cookie.includes('auth_token')) {
+      fetch('/api/workspaces').then(res => {
+        if (res.ok) return res.json();
+        return null;
+      }).then(data => {
+        if (data?.success) {
+          setUser({ id: 0, email: 'Connected User' }); 
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
-    if (rawRows.length > 0) {
+    if (rawRows.length > 0 || datasets.length > 0) {
       localforage.setItem('aether_workspace', {
-        headers, types, schema, filename, ingestedAt,
+        datasets, headers, types, schema, filename, ingestedAt,
         stage, userPath, appliedOps: Array.from(appliedOps),
-        rawRows, cleanedRows
+        rawRows, cleanedRows, quarantinedRows
       });
     }
-  }, [rawRows, cleanedRows, stage, appliedOps]);
+  }, [datasets, rawRows, cleanedRows, quarantinedRows, stage, appliedOps]);
 
   async function loadWorkspace() {
     const data: any = await localforage.getItem('aether_workspace');
     if (!data) return;
+    if (data.datasets) setDatasets(data.datasets);
     setHeaders(data.headers);
     setTypes(data.types);
     setSchema(data.schema);
@@ -117,6 +124,7 @@ export default function AetherApp() {
     setAppliedOps(new Set(data.appliedOps));
     setRawRows(data.rawRows);
     setCleanedRows(data.cleanedRows);
+    if (data.quarantinedRows) setQuarantinedRows(data.quarantinedRows);
     setShowHero(false);
     showToast('Workspace resumed from local storage!', 'success');
   }
@@ -130,7 +138,7 @@ export default function AetherApp() {
     const pipeline_state = JSON.stringify({
       headers, types, schema, filename, ingestedAt,
       stage, appliedOps: Array.from(appliedOps),
-      rawRows, cleanedRows
+      rawRows, cleanedRows, quarantinedRows
     });
     try {
       const res = await fetch('/api/workspaces', {
@@ -145,6 +153,48 @@ export default function AetherApp() {
       showToast('Cloud save failed', 'error');
     }
   }
+
+  const exportProject = () => {
+    const pipeline_state = JSON.stringify({
+      headers, types, schema, filename, ingestedAt,
+      stage, appliedOps: Array.from(appliedOps),
+      rawRows, cleanedRows, quarantinedRows
+    });
+    const blob = new Blob([pipeline_state], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${filename || 'aether_project'}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast('Project exported successfully!', 'success');
+  };
+
+  const importProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (data.headers) setHeaders(data.headers);
+        if (data.types) setTypes(data.types);
+        if (data.schema) setSchema(data.schema);
+        if (data.filename) setFilename(data.filename);
+        if (data.ingestedAt) setIngestedAt(data.ingestedAt);
+        if (data.stage) setStage(data.stage);
+        if (data.appliedOps) setAppliedOps(new Set(data.appliedOps));
+        if (data.rawRows) setRawRows(data.rawRows);
+        if (data.cleanedRows) setCleanedRows(data.cleanedRows);
+        if (data.quarantinedRows) setQuarantinedRows(data.quarantinedRows);
+        setShowHero(false);
+        showToast('Project imported successfully!', 'success');
+      } catch (err) {
+        showToast('Failed to parse project file', 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   async function handleAuth() {
     setAuthLoading(true);
@@ -172,7 +222,10 @@ export default function AetherApp() {
 
   // ── Ingest ──────────────────────────────────────────────────────────────────
   
-  const handleIngest = useCallback((hdrs: string[], rows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv', streaming: boolean = false) => {
+  const handleIngest = useCallback((hdrs: string[], rawIncomingRows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv', streaming: boolean = false) => {
+    // 🧠 Intelligent Feature: Smart Cast currencies/percentages
+    const rows = smartCastData(rawIncomingRows, hdrs);
+
     const ds = { id: Math.random().toString(36).substr(2, 9), name: fname, headers: hdrs, rows, sourceType: type, ingestedAt: new Date() };
     
     setDatasets(prev => {
@@ -194,13 +247,19 @@ export default function AetherApp() {
           // Initialize empty and start stream
           setRawRows([]);
           setCleanedRows([]);
+          setQuarantinedRows([]);
           setStreamQueue(rows);
           setIsStreaming(true);
           setStage('dashboard'); // Jump to dashboard to watch live
           setUserPath('bi'); // Default to BI path to see dashboard
         } else {
-          setRawRows(rows);
-          setCleanedRows(JSON.parse(JSON.stringify(rows)));
+          const { cleanRows, quarantinedRows: badRows } = splitQuarantine(hdrs, rows);
+          setRawRows(cleanRows);
+          setCleanedRows(JSON.parse(JSON.stringify(cleanRows)));
+          setQuarantinedRows(badRows);
+          if (badRows.length > 0) {
+            showToast(`Quarantined ${badRows.length} corrupted rows`, 'error');
+          }
         }
       }
       return next;
@@ -289,9 +348,8 @@ export default function AetherApp() {
   const issues = useMemo(() => detectIssues(headers, rawRows, types), [headers, rawRows, types]);
 
   return (
-    <div className="app-layout">
-      {(!showHero || rawRows.length > 0) && <GlobalSidebar />}
-      <div className="app-root">
+    <>
+
       {/* Topbar */}
       <header className="topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: '64px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
         <div className="logo-wrap" style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
@@ -301,7 +359,7 @@ export default function AetherApp() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '16px' }}>
             {headers.length > 0 && (
               <span className="data-badge" style={{ padding: '4px 10px', borderRadius: '16px', background: 'var(--bg-body)', border: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                {rawRows.length}R × {headers.length}C
+                {rawRows.length}R • {headers.length}C
               </span>
             )}
             <span className="version-badge" style={{ padding: '4px 10px', borderRadius: '16px', background: 'rgba(128,90,213,0.1)', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 700, border: '1px solid rgba(128,90,213,0.2)' }}>
@@ -325,10 +383,22 @@ export default function AetherApp() {
         )}
 
         <div className="topbar-right" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-sm btn-secondary" onClick={() => document.getElementById('import-file')?.click()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              📂 Import Project
+            </button>
+            <input id="import-file" type="file" accept=".json" onChange={importProject} style={{ display: 'none' }} />
+            
+            {rawRows.length > 0 && (
+              <button className="btn btn-sm btn-secondary" onClick={exportProject} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                💾 Export Project
+              </button>
+            )}
+          </div>
           {rawRows.length > 0 && user && (
-            <button className="btn btn-sm btn-secondary" onClick={saveToCloud} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <button className="btn btn-sm btn-primary" onClick={saveToCloud} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-              Save
+              Cloud Save
             </button>
           )}
           {user ? (
@@ -350,8 +420,30 @@ export default function AetherApp() {
 
       {(!showHero || rawRows.length > 0) && (
         <ErrorBoundary>
+        <div style={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+          {/* Global Sidebar Navigation */}
+          <aside style={{ width: '240px', background: 'var(--bg-card)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', padding: '16px 0' }}>
+            <div style={{ padding: '0 16px', marginBottom: '8px', fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.05em' }}>Modules</div>
+            
+            <button onClick={() => setStage('ingest')} style={{ background: stage === 'ingest' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'ingest' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'ingest' ? '3px solid var(--accent)' : '3px solid transparent' }}>
+              <span style={{ fontSize: '18px' }}>📥</span> Ingestion
+            </button>
+            <button onClick={() => setStage('store')} disabled={rawRows.length === 0} style={{ background: stage === 'store' || stage === 'clean' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'store' || stage === 'clean' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'store' || stage === 'clean' ? '3px solid var(--accent)' : '3px solid transparent' }}>
+              <span style={{ fontSize: '18px' }}>🛠️</span> Data Engineer
+            </button>
+            <button onClick={() => setStage('analyze')} disabled={rawRows.length === 0} style={{ background: stage === 'analyze' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'analyze' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'analyze' ? '3px solid var(--accent)' : '3px solid transparent' }}>
+              <span style={{ fontSize: '18px' }}>📊</span> Data Analyst
+            </button>
+            <button onClick={() => setStage('dashboard')} disabled={rawRows.length === 0} style={{ background: stage === 'dashboard' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'dashboard' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'dashboard' ? '3px solid var(--accent)' : '3px solid transparent' }}>
+              <span style={{ fontSize: '18px' }}>📈</span> Business Intel
+            </button>
+            <button onClick={() => setStage('deploy')} disabled={rawRows.length === 0} style={{ background: stage === 'deploy' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'deploy' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'deploy' ? '3px solid var(--accent)' : '3px solid transparent' }}>
+              <span style={{ fontSize: '18px' }}>🚀</span> ML Deploy
+            </button>
+          </aside>
+
       {/* Stage content */}
-      <main className="main-content">
+      <main className="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={stage}
@@ -380,16 +472,37 @@ export default function AetherApp() {
                 filename={filename}
                 ingestedAt={ingestedAt}
                 onProceed={() => setStage('clean')}
+                onSkipClean={() => setStage('path-selection')}
+                onAddDataset={() => setStage('ingest')}
                 onUpdateRows={handleUpdateRows}
               />
             )}
             {stage === 'clean' && (
               <CleanStage 
                 headers={headers} types={types} rawRows={rawRows} cleanedRows={cleanedRows} 
+                quarantinedRows={quarantinedRows}
+                onAddDataset={() => setStage('ingest')}
                 previousRows={rowHistory.length > 0 ? rowHistory[rowHistory.length - 1].rows : rawRows}
                 issues={issues} appliedOps={appliedOps} onApplyOp={handleApplyOp} onApplyAll={handleApplyAll} 
                 onFindReplace={handleFindReplace} onDropColumn={handleDropColumn} onProceed={() => setStage('path-selection')} 
                 rowHistoryLength={rowHistory.length} onTimeTravel={handleTimeTravel}
+                onRestoreQuarantine={() => {
+                  setRawRows(prev => [...prev, ...quarantinedRows]);
+                  setCleanedRows(prev => [...prev, ...quarantinedRows]);
+                  setQuarantinedRows([]);
+                  showToast('Restored corrupted rows to main dataset', 'success');
+                }}
+                onDropQuarantine={() => {
+                  setQuarantinedRows([]);
+                  showToast('Quarantined rows deleted forever', 'success');
+                }}
+                onConsolidateCategories={(col) => {
+                  import('@/lib/dataUtils').then(({ consolidateCategories }) => {
+                    pushHistory();
+                    setCleanedRows(prev => consolidateCategories(prev, col, 2));
+                    showToast(`Consolidated fuzzy typos in ${col}`, 'success');
+                  });
+                }}
               />
             )}
             
@@ -467,6 +580,7 @@ export default function AetherApp() {
           </motion.div>
         </AnimatePresence>
       </main>
+      </div>
       </ErrorBoundary>
       )}
 
@@ -505,7 +619,6 @@ export default function AetherApp() {
       {/* AI Assistant Panel */}
       <AIAssistant currentStage={stage} rowCount={cleanedRows.length || rawRows.length} />
 
-      </div>
-    </div>
+    </>
   );
 }

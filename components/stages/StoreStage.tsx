@@ -16,12 +16,14 @@ interface StoreStageProps {
   filename: string;
   ingestedAt: Date | null;
   onProceed: () => void;
+  onSkipClean?: () => void;
+  onAddDataset?: () => void;
   onUpdateRows: (newHeaders: string[], newRows: DataRow[]) => void;
 }
 
 type SortDir = 'asc' | 'desc' | null;
 
-export default function StoreStage({ datasets, headers, schema, rows, filename, ingestedAt, onProceed, onUpdateRows }: StoreStageProps) {
+export default function StoreStage({ datasets, headers, schema, rows, filename, ingestedAt, onProceed, onSkipClean, onAddDataset, onUpdateRows }: StoreStageProps) {
   const [dbReady, setDbReady] = useState(false);
   const [sqlQuery, setSqlQuery] = useState('SELECT * FROM t1;');
   const [isExecuting, setIsExecuting] = useState(false);
@@ -32,6 +34,9 @@ export default function StoreStage({ datasets, headers, schema, rows, filename, 
   const [tableB, setTableB] = useState('t2');
   const [colA, setColA] = useState('');
   const [colB, setColB] = useState('');
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveTarget, setSaveTarget] = useState('snowflake');
+  const [activeTab, setActiveTab] = useState<'datasets' | 'transform' | 'contracts'>('datasets');
 
   useEffect(() => {
     async function init() {
@@ -207,31 +212,6 @@ export default function StoreStage({ datasets, headers, schema, rows, filename, 
       animate="visible"
       className="stage-content"
     >
-      {datasets.length > 1 && (
-        <motion.div variants={itemVariants} className="card" style={{ marginBottom: 20 }}>
-          <div className="flex-between" style={{ marginBottom: 12 }}>
-            <div className="card-label" style={{ margin: 0 }}>Combine Multiple Datasets</div>
-            {!dbReady ? <span style={{color: 'var(--amber)'}}>⏳ Loading tables...</span> : <span style={{color: 'var(--emerald)'}}>✅ Tables Ready: {datasets.map((d,i) => `t${i+1}`).join(', ')}</span>}
-          </div>
-          <p style={{fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16}}>
-            You have loaded {datasets.length} datasets. Use DuckDB SQL to JOIN or UNION them into a single primary table before continuing.
-          </p>
-          <textarea
-            className="paste-area"
-            style={{ fontFamily: 'monospace', height: '80px', fontSize: '14px', background: 'rgba(0,0,0,0.2)', color: 'var(--cyan)', borderColor: 'rgba(255,255,255,0.1)', width: '100%' }}
-            value={sqlQuery}
-            onChange={(e) => setSqlQuery(e.target.value)}
-            disabled={!dbReady || isExecuting}
-          />
-          {sqlError && <div style={{ color: 'var(--rose)', fontSize: 13, marginTop: 8 }}>{sqlError}</div>}
-          <div className="flex gap-8" style={{ marginTop: 12 }}>
-            <button className="btn btn-secondary" onClick={handleRunSQL} disabled={!dbReady || isExecuting} style={{ background: 'var(--bg-card-hover)', borderColor: 'var(--cyan)' }}>
-              {isExecuting ? '⏳ Executing...' : '▶ Execute & Update Table'}
-            </button>
-          </div>
-        </motion.div>
-      )}
-
       <motion.div variants={itemVariants} className="stage-header flex-between" style={{ marginBottom: '32px' }}>
         <div>
           <h1 className="stage-title" style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
@@ -239,14 +219,82 @@ export default function StoreStage({ datasets, headers, schema, rows, filename, 
           </h1>
           <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>In-memory warehouse — explore, search, filter, sort, and export your data.</p>
         </div>
-        <div className="flex gap-8">
-          <button className="btn btn-secondary" onClick={() => exportCSV(headers, rows, filename.replace(/\.[^.]+$/, '_export.csv'))}>⬇ Export CSV</button>
-          <button className="btn btn-primary" onClick={onProceed} style={{ background: 'linear-gradient(135deg, var(--cyan), var(--violet))', border: 'none', color: '#fff', boxShadow: '0 0 20px rgba(6,182,212,0.4)' }}>Clean Data →</button>
+        <div className="flex gap-4" style={{ display: 'flex', gap: '16px' }}>
+          {onAddDataset && (
+            <button className="btn btn-secondary" onClick={onAddDataset} style={{ background: 'var(--surface)', border: '1px solid var(--border)', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', color: 'var(--text)' }}>
+              ➕ Add Dataset
+            </button>
+          )}
+          <button className="btn btn-secondary" onClick={() => exportCSV(headers, rows, filename.replace(/\.[^.]+$/, '_export.csv'))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', color: 'var(--text)' }}>
+            ⬇️ Export CSV
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowSaveModal(true)} style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid var(--emerald)', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', color: 'var(--emerald)' }}>
+            💾 Save to Database
+          </button>
+          <button className="btn btn-primary" onClick={completeness === '100.0' ? onSkipClean : onProceed} style={{ background: 'linear-gradient(135deg, var(--cyan), var(--violet))', border: 'none', color: '#fff', boxShadow: '0 0 20px rgba(6,182,212,0.4)', padding: '10px 20px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
+            {completeness === '100.0' ? 'Skip to Path Selection →' : 'Clean Data →'}
+          </button>
         </div>
       </motion.div>
 
-      {/* KPI row */}
-      <motion.div variants={itemVariants} className="stat-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
+      {showSaveModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="modal-content" style={{ background: 'var(--surface)', padding: '32px', borderRadius: '16px', width: '400px', border: '1px solid var(--border)' }}>
+            <h3 style={{ margin: '0 0 16px 0' }}>💾 Save to Database</h3>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>Select the target repository to push this dataset to.</p>
+            <select className="input" value={saveTarget} onChange={(e) => setSaveTarget(e.target.value)} style={{ width: '100%', padding: '12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '8px', marginBottom: '24px' }}>
+              <option value="snowflake">❄️ Snowflake</option>
+              <option value="postgres">🐘 PostgreSQL</option>
+              <option value="bigquery">🔍 Google BigQuery</option>
+            </select>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowSaveModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={async () => {
+                setShowSaveModal(false);
+                const toast = document.createElement('div');
+                toast.innerText = `⏳ Pushing ${rows.length} rows to ${saveTarget}...`;
+                toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--amber);color:#000;padding:12px 24px;border-radius:8px;z-index:999;font-weight:600;box-shadow:0 10px 25px rgba(0,0,0,0.5)';
+                document.body.appendChild(toast);
+                try {
+                  const res = await fetch(`/api/export/${saveTarget}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rows: rows.slice(0, 100) }) // Send sample
+                  });
+                  const data = await res.json();
+                  toast.style.background = data.success ? 'var(--emerald)' : 'var(--rose)';
+                  toast.innerText = data.message || data.error || `Push Complete`;
+                } catch (err) {
+                  toast.style.background = 'var(--rose)';
+                  toast.innerText = `✗ Failed to push data`;
+                }
+                setTimeout(() => document.body.removeChild(toast), 4000);
+              }} style={{ background: 'var(--emerald)', color: '#000', border: 'none' }}>Confirm Push</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-4" style={{ marginBottom: '24px', borderBottom: '1px solid var(--border)' }}>
+        {['datasets', 'transform', 'contracts'].map(t => (
+          <button 
+            key={t}
+            onClick={() => setActiveTab(t as any)}
+            style={{ 
+              background: 'none', border: 'none', color: activeTab === t ? 'var(--cyan)' : 'var(--text-secondary)',
+              padding: '8px 16px', borderBottom: activeTab === t ? '2px solid var(--cyan)' : '2px solid transparent',
+              cursor: 'pointer', fontWeight: 600, fontSize: '14px', textTransform: 'capitalize'
+            }}
+          >
+            {t === 'datasets' ? '🗄️ Datasets & Schema' : t === 'transform' ? '🔗 Transformations' : '🛡️ Data Contracts'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'datasets' && (
+        <>
+          {/* KPI row */}
+          <motion.div variants={itemVariants} className="stat-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
         {[
           { val: rows.length, lbl: 'Total Rows',    color: 'var(--cyan)' },
           { val: headers.length, lbl: 'Columns',    color: 'var(--violet)' },
@@ -292,65 +340,139 @@ export default function StoreStage({ datasets, headers, schema, rows, filename, 
         </div>
       </motion.div>
 
-      {/* Data Contracts Section */}
-      <motion.div variants={itemVariants} className="card" style={{ marginBottom: '32px', borderColor: 'var(--violet)' }}>
-        <div className="card-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          🛡️ Data Quality Contracts
-          {quarantinedCount > 0 && (
-            <span style={{ background: 'var(--rose)', color: '#fff', padding: '2px 8px', borderRadius: '12px', fontSize: '11px' }}>
-              {quarantinedCount} Quarantined
-            </span>
-          )}
-        </div>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-          Define strict validation rules. Rows failing these conditions are automatically quarantined and dropped from the active dataset.
-        </p>
+        </>
+      )}
 
-        <div className="flex gap-8" style={{ marginBottom: '16px', alignItems: 'center' }}>
-          <select className="select-input" value={ruleCol} onChange={e => setRuleCol(e.target.value)} style={{ width: '200px' }}>
-            <option value="">-- Select Column --</option>
-            {headers.map(h => <option key={h} value={h}>{h}</option>)}
-          </select>
-
-          <select className="select-input" value={ruleOp} onChange={e => setRuleOp(e.target.value as any)} style={{ width: '150px' }}>
-            <option value="not_null">Is Not Null</option>
-            <option value=">">Greater Than</option>
-            <option value="<">Less Than</option>
-            <option value="==">Equals</option>
-            <option value="!=">Not Equals</option>
-            <option value="contains">Contains</option>
-          </select>
-
-          {ruleOp !== 'not_null' && (
-            <input 
-              type="text" 
-              className="text-input" 
-              placeholder="Value..." 
-              value={ruleVal} 
-              onChange={e => setRuleVal(e.target.value)} 
-              style={{ width: '200px' }}
-            />
-          )}
-
-          <button className="btn btn-primary" onClick={handleAddRule} disabled={!ruleCol} style={{ background: 'var(--violet)' }}>+ Add Rule</button>
-        </div>
-
-        {contractRules.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {contractRules.map(rule => (
-              <div key={rule.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: '8px' }}>
-                <div style={{ fontSize: '13px' }}>
-                  <strong style={{ color: 'var(--violet)' }}>{rule.column}</strong> 
-                  <span style={{ opacity: 0.7, margin: '0 8px' }}>MUST BE</span> 
-                  <strong style={{ color: 'var(--cyan)' }}>{rule.operator}</strong> 
-                  {rule.operator !== 'not_null' && <span style={{ marginLeft: '8px', fontFamily: 'monospace', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px' }}>{rule.value}</span>}
-                </div>
-                <button className="btn btn-sm" onClick={() => handleRemoveRule(rule.id)} style={{ color: 'var(--rose)', borderColor: 'var(--rose)', background: 'transparent' }}>Remove</button>
-              </div>
-            ))}
+      {activeTab === 'transform' && datasets.length > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{ marginBottom: 32 }}>
+          <div className="flex-between" style={{ marginBottom: 12 }}>
+            <div className="card-label" style={{ margin: 0 }}>Combine Multiple Datasets</div>
+            {!dbReady ? <span style={{color: 'var(--amber)'}}>⏳ Loading tables...</span> : <span style={{color: 'var(--emerald)'}}>✅ Tables Ready: {datasets.map((d,i) => `t${i+1}`).join(', ')}</span>}
           </div>
-        )}
-      </motion.div>
+          <p style={{fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16}}>
+            You have loaded {datasets.length} datasets. Use DuckDB SQL to JOIN or UNION them into a single primary table.
+          </p>
+          
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', alignItems: 'center' }}>
+            <select className="input" value={mergeMode} onChange={e => setMergeMode(e.target.value as any)} style={{ width: '150px' }}>
+              <option value="visual">Visual Builder</option>
+              <option value="sql">SQL Editor</option>
+            </select>
+          </div>
+
+          {mergeMode === 'visual' && datasets.length > 1 && (
+            <div className="flex gap-8" style={{ marginBottom: '16px', alignItems: 'center', background: 'var(--bg-card-hover)', padding: '16px', borderRadius: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Left Table</span>
+                <select className="search-input" style={{ width: '100%', padding: '8px' }} value={tableA} onChange={e => setTableA(e.target.value)}>
+                  {datasets.map((d, i) => <option key={i} value={`t${i+1}`}>t{i+1} ({d.name})</option>)}
+                </select>
+                <select className="input" value={colA} onChange={e => setColA(e.target.value)} style={{ marginTop: '8px' }}>
+                  {(datasets[parseInt(tableA.replace('t','')) - 1]?.headers || []).map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Join Type</span>
+                <select className="input" value={joinType} onChange={e => setJoinType(e.target.value)}>
+                  <option value="JOIN">INNER JOIN</option>
+                  <option value="LEFT JOIN">LEFT JOIN</option>
+                  <option value="RIGHT JOIN">RIGHT JOIN</option>
+                  <option value="FULL OUTER JOIN">FULL OUTER JOIN</option>
+                  <option value="UNION ALL">UNION ALL</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Right Table</span>
+                <select className="search-input" style={{ width: '100%', padding: '8px' }} value={tableB} onChange={e => setTableB(e.target.value)}>
+                  {datasets.map((d, i) => <option key={i} value={`t${i+1}`}>t{i+1} ({d.name})</option>)}
+                </select>
+                {joinType !== 'UNION ALL' && (
+                  <select className="input" value={colB} onChange={e => setColB(e.target.value)} style={{ marginTop: '8px' }}>
+                    {(datasets[parseInt(tableB.replace('t','')) - 1]?.headers || []).map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+          )}
+
+          <textarea
+            className="paste-area"
+            style={{ fontFamily: 'monospace', height: '120px', fontSize: '14px', background: 'rgba(0,0,0,0.2)', color: 'var(--cyan)', borderColor: 'rgba(255,255,255,0.1)', width: '100%' }}
+            value={sqlQuery}
+            onChange={(e) => setSqlQuery(e.target.value)}
+            disabled={!dbReady || isExecuting || mergeMode === 'visual'}
+          />
+          {sqlError && <div style={{ color: 'var(--rose)', fontSize: 13, marginTop: 8 }}>{sqlError}</div>}
+          <div className="flex gap-8" style={{ marginTop: 12 }}>
+            <button className="btn btn-secondary" onClick={handleRunSQL} disabled={!dbReady || isExecuting} style={{ background: 'var(--bg-card-hover)', borderColor: 'var(--cyan)' }}>
+              {isExecuting ? '⏳ Executing...' : '▶ Execute & Update Table'}
+            </button>
+          </div>
+        </motion.div>
+      )}
+
+      {activeTab === 'contracts' && (
+        <motion.div variants={itemVariants} className="card" style={{ marginBottom: '32px', borderColor: 'var(--violet)' }}>
+          <div className="card-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            🛡️ Data Quality Contracts
+            {quarantinedCount > 0 && (
+              <span style={{ background: 'var(--rose)', color: '#fff', padding: '2px 8px', borderRadius: '12px', fontSize: '11px' }}>
+                {quarantinedCount} Quarantined
+              </span>
+            )}
+          </div>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Define strict validation rules. Rows failing these conditions are automatically quarantined and dropped from the active dataset.
+          </p>
+
+          <div className="flex gap-8" style={{ marginBottom: '16px', alignItems: 'center' }}>
+            <select className="select-input" value={ruleCol} onChange={e => setRuleCol(e.target.value)} style={{ width: '200px' }}>
+              <option value="">-- Select Column --</option>
+              {headers.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+
+            <select className="select-input" value={ruleOp} onChange={e => setRuleOp(e.target.value as any)} style={{ width: '150px' }}>
+              <option value="not_null">Is Not Null</option>
+              <option value=">">Greater Than</option>
+              <option value="<">Less Than</option>
+              <option value="==">Equals</option>
+              <option value="!=">Not Equals</option>
+              <option value="contains">Contains</option>
+            </select>
+
+            {ruleOp !== 'not_null' && (
+              <input 
+                type="text" 
+                className="text-input" 
+                placeholder="Value..." 
+                value={ruleVal} 
+                onChange={e => setRuleVal(e.target.value)} 
+                style={{ width: '200px' }}
+              />
+            )}
+
+            <button className="btn btn-primary" onClick={handleAddRule} disabled={!ruleCol} style={{ background: 'var(--violet)' }}>+ Add Rule</button>
+          </div>
+
+          {contractRules.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {contractRules.map(rule => (
+                <div key={rule.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.2)', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '13px' }}>
+                    <strong style={{ color: 'var(--violet)' }}>{rule.column}</strong> 
+                    <span style={{ opacity: 0.7, margin: '0 8px' }}>MUST BE</span> 
+                    <strong style={{ color: 'var(--cyan)' }}>{rule.operator}</strong> 
+                    {rule.operator !== 'not_null' && <span style={{ marginLeft: '8px', fontFamily: 'monospace', background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: '4px' }}>{rule.value}</span>}
+                  </div>
+                  <button className="btn btn-sm" onClick={() => handleRemoveRule(rule.id)} style={{ color: 'var(--rose)', borderColor: 'var(--rose)', background: 'transparent' }}>Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* Data table with search + column toggle */}
       <motion.div variants={itemVariants} className="card" style={{ marginTop: 20 }}>

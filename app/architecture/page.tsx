@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import GlobalSidebar from '@/components/GlobalSidebar';
+
 
 export default function ArchitecturePage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'engineering' | 'paths' | 'unified'>('overview');
@@ -99,7 +99,7 @@ export default function ArchitecturePage() {
 
   return (
     <div className="app-layout">
-      <GlobalSidebar />
+      
       <div className="app-root" style={{ padding: '40px', maxWidth: '1400px', margin: '0 auto', overflowY: 'auto' }}>
         
         <header style={{ marginBottom: '40px' }}>

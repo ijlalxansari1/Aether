@@ -136,11 +136,12 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
     if (!restUrl.trim()) return;
     try {
       const parsedHeaders = JSON.parse(restHeaders || '{}');
+      const parsedUrl = restUrl.startsWith('http') ? restUrl : `https://${restUrl}`;
       const res = await fetch('/api/ingest/rest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: restUrl,
+          url: parsedUrl,
           method: restMethod,
           headers: parsedHeaders
         })
@@ -181,7 +182,14 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
         return row;
       });
       
-      onIngest(headers, rows, new URL(restUrl).pathname.split('/').pop() || 'API_Data', 'api');
+      let safeName = 'API_Data';
+      try {
+        safeName = new URL(restUrl.startsWith('http') ? restUrl : `https://${restUrl}`).pathname.split('/').pop() || 'API_Data';
+      } catch (e) {
+        // Ignore URL parsing errors
+      }
+      
+      onIngest(headers, rows, safeName, 'api');
       setShowRestModal(false);
     } catch (err: any) {
       onError('Failed to fetch from API: ' + err.message);

@@ -29,21 +29,41 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
   const numCols = headers.filter(h => types[h] === 'number');
   const strCols = headers.filter(h => types[h] === 'string');
 
+  // Filters
+  const [globalFilterCol, setGlobalFilterCol] = useState<string>('');
+  const [globalFilterVal, setGlobalFilterVal] = useState<string>('');
+
+  const filteredRows = rows.filter(r => {
+    if (!globalFilterCol || !globalFilterVal) return true;
+    return String(r[globalFilterCol]) === globalFilterVal;
+  });
+
   const [selectedX, setSelectedX] = useState<string>(strCols[0] || '');
   const [selectedY, setSelectedY] = useState<string>(numCols[0] || '');
 
-  // KPIs
-  const kpis = numCols.slice(0, 4).map(h => {
-    const vals = rows.map(r => Number(r[h])).filter(v => !isNaN(v));
-    const avg = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
-    const change = parseFloat((Math.random() * 20 - 10).toFixed(1));
-    return { label: h.replace(/_/g, ' ').toUpperCase(), value: fmtNum(avg), change, up: change >= 0 };
+  // Dynamic KPI configs
+  const [kpiConfigs, setKpiConfigs] = useState<{ col: string, agg: 'sum'|'avg'|'count' }[]>(() => {
+    return [
+      { col: numCols[0] || '', agg: 'sum' as const },
+      { col: numCols[1] || numCols[0] || '', agg: 'avg' as const },
+      { col: numCols[2] || numCols[0] || '', agg: 'avg' as const },
+      { col: numCols[3] || numCols[0] || '', agg: 'sum' as const }
+    ].filter(c => c.col !== '');
   });
-  if (!kpis.length) kpis.push({ label: 'TOTAL ROWS', value: fmtNum(rows.length), change: 0, up: true });
+
+  const kpis = kpiConfigs.map((conf, idx) => {
+    const vals = filteredRows.map(r => Number(r[conf.col])).filter(v => !isNaN(v));
+    let val = 0;
+    if (conf.agg === 'sum') val = vals.reduce((a, b) => a + b, 0);
+    else if (conf.agg === 'avg') val = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+    else if (conf.agg === 'count') val = vals.length;
+    return { id: idx, col: conf.col, agg: conf.agg, label: `${conf.agg.toUpperCase()} of ${conf.col.replace(/_/g, ' ')}`, value: fmtNum(val) };
+  });
+  if (!kpis.length) kpis.push({ id: 0, col: '', agg: 'count', label: 'TOTAL ROWS', value: fmtNum(filteredRows.length) });
 
   // Main chart data
   const mainDataMap: Record<string, number> = {};
-  rows.forEach(r => { 
+  filteredRows.forEach(r => { 
     const k = String(r[selectedX] || 'Unknown'); 
     mainDataMap[k] = (mainDataMap[k] || 0) + (Number(r[selectedY]) || 0); 
   });
@@ -52,16 +72,32 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     .slice(0, 10)
     .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(1)) }));
 
-  // Pie chart data
+  // Pie chart config
+  const [pieCol, setPieCol] = useState<string>(strCols[0] || '');
   const pieDataMap: Record<string, number> = {};
-  rows.forEach(r => { 
-    const k = String(r[strCols[0] || 'Unknown']); 
+  filteredRows.forEach(r => { 
+    const k = String(r[pieCol || 'Unknown']); 
     pieDataMap[k] = (pieDataMap[k] || 0) + 1; 
   });
   const pieData = Object.entries(pieDataMap)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([name, value]) => ({ name, value }));
+
+  const exportCSV = () => {
+    if (!filteredRows.length) return;
+    const cols = Object.keys(filteredRows[0]);
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + cols.join(",") + "\n"
+      + filteredRows.map(e => cols.map(c => e[c]).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${filename || 'export'}_filtered.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const COLORS = ['#0891b2', '#7c3aed', '#059669', '#d97706', '#dc2626'];
 
@@ -78,6 +114,9 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
           <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>Interactive KPIs, trend charts, and reports for stakeholders.</p>
         </div>
         <div className="flex gap-8">
+          <button className="btn btn-secondary" onClick={exportCSV} style={{ background: 'transparent', border: '1px solid var(--border)' }}>
+            ⬇️ Export CSV
+          </button>
           <button 
             className="btn btn-secondary" 
             onClick={() => setEditMode(!editMode)}
@@ -88,6 +127,24 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
           <button className="btn btn-primary" onClick={onProceed} style={{ background: 'linear-gradient(135deg, var(--violet, #7c3aed), var(--accent, #6366f1))', border: 'none', color: '#fff', boxShadow: '0 0 20px rgba(139,92,246,0.4)' }}>📋 BI Report →</button>
         </div>
       </motion.div>
+
+      {/* Global Filter Toolbar */}
+      <div style={{ padding: '16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>🔍 Global Filters</span>
+        <select className="input" value={globalFilterCol} onChange={e => { setGlobalFilterCol(e.target.value); setGlobalFilterVal(''); }} style={{ padding: '6px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-body)' }}>
+          <option value="">-- Select Filter Column --</option>
+          {strCols.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {globalFilterCol && (
+          <select className="input" value={globalFilterVal} onChange={e => setGlobalFilterVal(e.target.value)} style={{ padding: '6px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-body)' }}>
+            <option value="">-- Select Value --</option>
+            {Array.from(new Set(rows.map(r => String(r[globalFilterCol])))).sort().map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: '13px', color: 'var(--text-muted)' }}>
+          Showing {filteredRows.length.toLocaleString()} rows
+        </span>
+      </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
         {layout.map((block, index) => {
@@ -128,12 +185,24 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                   {kpis.map((k, i) => (
                     <motion.div whileHover={{ y: -4 }} key={i} className="card" style={{ padding: '24px', position: 'relative', overflow: 'hidden', height: '100%' }}>
-                      <div style={{ position: 'absolute', top: 0, right: 0, width: '100px', height: '100px', background: `radial-gradient(circle, ${k.up ? 'rgba(16,185,129,0.15)' : 'rgba(244,63,94,0.15)'} 0%, transparent 70%)`, transform: 'translate(30%, -30%)' }} />
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, letterSpacing: '1px', marginBottom: '12px' }}>{k.label}</div>
+                      <div style={{ position: 'absolute', top: 0, right: 0, width: '100px', height: '100px', background: `radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)`, transform: 'translate(30%, -30%)' }} />
+                      
+                      {editMode ? (
+                        <div style={{ marginBottom: '12px', zIndex: 10, position: 'relative' }}>
+                          <select value={kpiConfigs[i]?.agg || 'sum'} onChange={e => { const newC = [...kpiConfigs]; if(newC[i]) newC[i].agg = e.target.value as any; setKpiConfigs(newC); }} style={{ fontSize: '11px', padding: '2px', marginRight: '4px', background: 'var(--bg-body)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '4px' }}>
+                            <option value="sum">SUM</option>
+                            <option value="avg">AVG</option>
+                            <option value="count">COUNT</option>
+                          </select>
+                          <select value={kpiConfigs[i]?.col || ''} onChange={e => { const newC = [...kpiConfigs]; if(newC[i]) newC[i].col = e.target.value; setKpiConfigs(newC); }} style={{ fontSize: '11px', padding: '2px', background: 'var(--bg-body)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '4px' }}>
+                            {numCols.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, letterSpacing: '1px', marginBottom: '12px' }}>{k.label}</div>
+                      )}
+
                       <div style={{ fontSize: '32px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono', marginBottom: '8px' }}>{k.value}</div>
-                      <div style={{ color: k.up ? 'var(--emerald)' : 'var(--rose)', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {k.up ? '▲' : '▼'} {Math.abs(k.change)}% vs last period
-                      </div>
                     </motion.div>
                   ))}
                 </div>
@@ -189,7 +258,12 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
 
               {isPie && (
                 <motion.div className="card" style={{ height: '100%' }}>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, marginBottom: '24px' }}>Composition</h3>
+                  <div className="flex-between" style={{ marginBottom: '24px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Composition</h3>
+                    <select className="search-input" value={pieCol} onChange={e => setPieCol(e.target.value)} style={{ padding: '4px 8px', width: 'auto' }}>
+                      {strCols.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                   <div style={{ height: '300px' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>

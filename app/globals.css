@@ -887,7 +887,7 @@ tbody td { padding: 8px 13px; font-family: 'JetBrains Mono', monospace; white-sp
 }
 
 .global-sidebar {
-  width: 240px;
+  
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
   display: flex;

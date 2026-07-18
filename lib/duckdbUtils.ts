@@ -1,27 +1,36 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 import { DataRow } from './types';
 
-let dbInstance: duckdb.AsyncDuckDB | null = null;
+let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null;
+
+const MANUAL_BUNDLES: duckdb.DuckDBBundles = {
+  mvp: {
+    mainModule: '/duckdb-mvp.wasm',
+    mainWorker: '/duckdb-browser-mvp.worker.js',
+  },
+  eh: {
+    mainModule: '/duckdb-eh.wasm',
+    mainWorker: '/duckdb-browser-eh.worker.js',
+  },
+};
 
 export async function getDb(): Promise<duckdb.AsyncDuckDB> {
-  if (dbInstance) return dbInstance;
+  if (dbPromise) return dbPromise;
 
-  const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
-  const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+  dbPromise = (async () => {
+    const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);
 
-  const worker_url = URL.createObjectURL(
-    new Blob([`importScripts("${bundle.mainWorker!}");`], { type: 'text/javascript' })
-  );
+    // Directly use local worker file - no Blob, no fetch, no importScripts!
+    const worker = new Worker(bundle.mainWorker!);
+    const logger = new duckdb.ConsoleLogger();
+    const db = new duckdb.AsyncDuckDB(logger, worker);
 
-  const worker = new Worker(worker_url);
-  const logger = new duckdb.ConsoleLogger();
-  const db = new duckdb.AsyncDuckDB(logger, worker);
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 
-  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-  URL.revokeObjectURL(worker_url);
+    return db;
+  })();
 
-  dbInstance = db;
-  return dbInstance;
+  return dbPromise;
 }
 
 export async function loadDataToTable(db: duckdb.AsyncDuckDB, tableName: string, data: DataRow[]) {
