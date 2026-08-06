@@ -1,0 +1,43 @@
+{
+  "id": "lg8ln006o",
+  "name": "exchange_rate.csv",
+  "headers": [
+    "Currency",
+    "Rate"
+  ],
+  "rows": [
+    {
+      "Currency": "EUR",
+      "Rate": 0.93
+    },
+    {
+      "Currency": "GBP",
+      "Rate": 0.8
+    },
+    {
+      "Currency": "INR",
+      "Rate": 82.95
+    }
+  ],
+  "types": {
+    "Currency": "string",
+    "Rate": "number"
+  },
+  "schema": [
+    {
+      "name": "Currency",
+      "type": "string",
+      "nullCount": 0,
+      "uniqueCount": 3
+    },
+    {
+      "name": "Rate",
+      "type": "number",
+      "nullCount": 0,
+      "uniqueCount": 3
+    }
+  ],
+  "appliedOps": [],
+  "sourceType": "csv",
+  "ingestedAt": "2026-07-28T10:14:39.679Z"
+}

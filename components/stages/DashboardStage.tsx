@@ -1,13 +1,12 @@
 'use client';
 
-import { ColumnType, DataRow } from '@/lib/types';
-import { fmtNum } from '@/lib/dataUtils';
+import { ColumnType, DataRow, StoryBlock } from '@/lib/types';
+import { fmtNum, generateDataStoryLayout } from '@/lib/dataUtils';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell
-} from 'recharts';
+import dynamic from 'next/dynamic';
+
+const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
 interface DashboardStageProps {
   headers: string[];
@@ -19,13 +18,8 @@ interface DashboardStageProps {
 
 export default function DashboardStage({ headers, types, rows, filename, onProceed }: DashboardStageProps) {
   const [editMode, setEditMode] = useState(false);
-  const [layout, setLayout] = useState([
-    { id: 'kpis', width: '100%' },
-    { id: 'main', width: '66.66%' },
-    { id: 'pie', width: '33.33%' }
-  ]);
+  const [layout, setLayout] = useState<StoryBlock[]>(() => generateDataStoryLayout(headers, types, rows));
   
-  const [mainType, setMainType] = useState<'bar' | 'line'>('bar');
   const numCols = headers.filter(h => types[h] === 'number');
   const strCols = headers.filter(h => types[h] === 'string');
 
@@ -37,9 +31,6 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     if (!globalFilterCol || !globalFilterVal) return true;
     return String(r[globalFilterCol]) === globalFilterVal;
   });
-
-  const [selectedX, setSelectedX] = useState<string>(strCols[0] || '');
-  const [selectedY, setSelectedY] = useState<string>(numCols[0] || '');
 
   // Dynamic KPI configs
   const [kpiConfigs, setKpiConfigs] = useState<{ col: string, agg: 'sum'|'avg'|'count' }[]>(() => {
@@ -61,29 +52,6 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
   });
   if (!kpis.length) kpis.push({ id: 0, col: '', agg: 'count', label: 'TOTAL ROWS', value: fmtNum(filteredRows.length) });
 
-  // Main chart data
-  const mainDataMap: Record<string, number> = {};
-  filteredRows.forEach(r => { 
-    const k = String(r[selectedX] || 'Unknown'); 
-    mainDataMap[k] = (mainDataMap[k] || 0) + (Number(r[selectedY]) || 0); 
-  });
-  const mainData = Object.entries(mainDataMap)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([name, value]) => ({ name, value: parseFloat(value.toFixed(1)) }));
-
-  // Pie chart config
-  const [pieCol, setPieCol] = useState<string>(strCols[0] || '');
-  const pieDataMap: Record<string, number> = {};
-  filteredRows.forEach(r => { 
-    const k = String(r[pieCol || 'Unknown']); 
-    pieDataMap[k] = (pieDataMap[k] || 0) + 1; 
-  });
-  const pieData = Object.entries(pieDataMap)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, value]) => ({ name, value }));
-
   const exportCSV = () => {
     if (!filteredRows.length) return;
     const cols = Object.keys(filteredRows[0]);
@@ -99,7 +67,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     document.body.removeChild(link);
   };
 
-  const COLORS = ['#0891b2', '#7c3aed', '#059669', '#d97706', '#dc2626'];
+  const COLORS = ['#0891b2', '#7c3aed', '#059669', '#d97706', '#dc2626', '#e11d48', '#2563eb'];
 
   const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } };
   const itemVariants = { hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } };
@@ -109,9 +77,9 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
       <motion.div variants={itemVariants} className="stage-header flex-between" style={{ marginBottom: '32px' }}>
         <div>
           <h1 className="stage-title" style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>
-            <span style={{ marginRight: '12px' }}>📈</span> Dashboard & Reporting
+            <span style={{ marginRight: '12px' }}>✨</span> AI Data Story
           </h1>
-          <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>Interactive KPIs, trend charts, and reports for stakeholders.</p>
+          <p className="stage-sub" style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>Intelligently tailored visuals based on the underlying shape of your data.</p>
         </div>
         <div className="flex gap-8">
           <button className="btn btn-secondary" onClick={exportCSV} style={{ background: 'transparent', border: '1px solid var(--border)' }}>
@@ -124,7 +92,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
           >
             {editMode ? '✅ Save Layout' : '📐 Edit Layout'}
           </button>
-          <button className="btn btn-primary" onClick={onProceed} style={{ background: 'linear-gradient(135deg, var(--violet, #7c3aed), var(--accent, #6366f1))', border: 'none', color: '#fff', boxShadow: '0 0 20px rgba(139,92,246,0.4)' }}>📋 BI Report →</button>
+          <button className="btn btn-primary" onClick={onProceed} style={{ background: 'linear-gradient(135deg, var(--violet, #7c3aed), var(--accent, #6366f1))', border: 'none', color: '#fff', boxShadow: '0 0 20px rgba(139,92,246,0.4)' }}>📋 Export Report →</button>
         </div>
       </motion.div>
 
@@ -148,10 +116,6 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
         {layout.map((block, index) => {
-          const isKpi = block.id === 'kpis';
-          const isMain = block.id === 'main';
-          const isPie = block.id === 'pie';
-          
           return (
             <motion.div 
               layout
@@ -181,7 +145,7 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
                 </div>
               )}
 
-              {isKpi && (
+              {block.type === 'kpi' && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                   {kpis.map((k, i) => (
                     <motion.div whileHover={{ y: -4 }} key={i} className="card" style={{ padding: '24px', position: 'relative', overflow: 'hidden', height: '100%' }}>
@@ -208,75 +172,122 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
                 </div>
               )}
 
-              {isMain && (
+              {block.type !== 'kpi' && (
                 <div className="card" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <div className="flex-between" style={{ marginBottom: '24px' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Custom Distribution</h3>
-                    <div className="flex gap-8" style={{ alignItems: 'center' }}>
-                      <select className="search-input" value={selectedX} onChange={e => setSelectedX(e.target.value)} style={{ padding: '4px 8px', width: 'auto' }}>
-                        {strCols.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <span style={{ color: 'var(--text-muted)' }}>vs</span>
-                      <select className="search-input" value={selectedY} onChange={e => setSelectedY(e.target.value)} style={{ padding: '4px 8px', width: 'auto' }}>
-                        {numCols.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
-                        <button 
-                          onClick={() => setMainType('bar')} 
-                          style={{ background: mainType === 'bar' ? 'var(--accent)' : 'transparent', color: mainType === 'bar' ? '#fff' : 'var(--text-muted)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}
-                        >Bar</button>
-                        <button 
-                          onClick={() => setMainType('line')} 
-                          style={{ background: mainType === 'line' ? 'var(--accent)' : 'transparent', color: mainType === 'line' ? '#fff' : 'var(--text-muted)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}
-                        >Line</button>
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ flex: 1, minHeight: '300px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      {mainType === 'bar' ? (
-                        <BarChart data={mainData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                          <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                          <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={fmtNum} />
-                          <RechartsTooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
-                          <Bar dataKey="value" fill="var(--cyan)" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      ) : (
-                        <LineChart data={mainData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                          <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                          <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={fmtNum} />
-                          <RechartsTooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
-                          <Line type="monotone" dataKey="value" stroke="var(--violet)" strokeWidth={3} dot={{ fill: 'var(--violet)', r: 4 }} />
-                        </LineChart>
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 600, color: 'var(--emerald)' }}>{block.title}</h3>
+                      {editMode && (
+                         <button onClick={() => setLayout(layout.filter(l => l.id !== block.id))} style={{ background: 'transparent', border: 'none', color: 'var(--red)', cursor: 'pointer' }}>🗑️</button>
                       )}
-                    </ResponsiveContainer>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>{block.description}</p>
+                  </div>
+
+                  <div style={{ flex: 1, minHeight: '300px', display: 'flex', alignItems: 'center', justifyItems: 'center', width: '100%', height: '100%' }}>
+                      {(() => {
+                        const plotLayout: any = {
+                          autosize: true,
+                          margin: { t: 20, r: 20, b: 40, l: 40 },
+                          paper_bgcolor: 'transparent',
+                          plot_bgcolor: 'transparent',
+                          font: { color: '#94a3b8' },
+                          xaxis: { gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.05)' },
+                          yaxis: { gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.05)' },
+                        };
+
+                        if (block.type === 'timeseries') {
+                          const x = block.config?.xCol;
+                          const y = block.config?.yCol;
+                          const dataMap: Record<string, number> = {};
+                          filteredRows.forEach(r => { const k = String(r[x]||''); dataMap[k] = (dataMap[k]||0) + (Number(r[y])||0); });
+                          const sortedKeys = Object.keys(dataMap).sort((a,b) => a.localeCompare(b));
+                          
+                          return (
+                            <Plot
+                              data={[{
+                                x: sortedKeys,
+                                y: sortedKeys.map(k => dataMap[k]),
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                marker: { color: '#8b5cf6' },
+                                line: { shape: 'spline', smoothing: 1.3, width: 3 }
+                              }]}
+                              layout={plotLayout}
+                              useResizeHandler={true}
+                              style={{ width: '100%', height: '100%', minHeight: '300px' }}
+                              config={{ displayModeBar: false }}
+                            />
+                          );
+                        }
+                        
+                        if (block.type === 'correlation') {
+                          const x = block.config?.xCol;
+                          const y = block.config?.yCol;
+                          return (
+                            <Plot
+                              data={[{
+                                x: filteredRows.map(r => Number(r[x])).filter(v => !isNaN(v)),
+                                y: filteredRows.map(r => Number(r[y])).filter(v => !isNaN(v)),
+                                type: 'scatter',
+                                mode: 'markers',
+                                marker: { color: '#06b6d4', opacity: 0.6, size: 8 }
+                              }]}
+                              layout={{ ...plotLayout, xaxis: { ...plotLayout.xaxis, title: x }, yaxis: { ...plotLayout.yaxis, title: y } }}
+                              useResizeHandler={true}
+                              style={{ width: '100%', height: '100%', minHeight: '300px' }}
+                              config={{ displayModeBar: false }}
+                            />
+                          );
+                        }
+
+                        if (block.type === 'composition') {
+                          const c = block.config?.col;
+                          const map: Record<string, number> = {};
+                          filteredRows.forEach(r => { const k = String(r[c]||'Unknown'); map[k] = (map[k]||0) + 1; });
+                          const sorted = Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, 10);
+                          return (
+                            <Plot
+                              data={[{
+                                labels: sorted.map(s => s[0]),
+                                values: sorted.map(s => s[1]),
+                                type: 'pie',
+                                hole: 0.6,
+                                marker: { colors: COLORS }
+                              }]}
+                              layout={{ ...plotLayout, showlegend: true, legend: { font: { color: '#94a3b8' } } }}
+                              useResizeHandler={true}
+                              style={{ width: '100%', height: '100%', minHeight: '300px' }}
+                              config={{ displayModeBar: false }}
+                            />
+                          );
+                        }
+
+                        if (block.type === 'distribution') {
+                          const y = block.config?.col;
+                          const map: Record<string, number> = {};
+                          filteredRows.forEach(r => { const k = String(r[strCols[0]]||'ID'); map[k] = (map[k]||0) + (Number(r[y])||0); });
+                          const sorted = Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, 15);
+                          return (
+                            <Plot
+                              data={[{
+                                x: sorted.map(s => s[0]),
+                                y: sorted.map(s => s[1]),
+                                type: 'bar',
+                                marker: { color: '#06b6d4' }
+                              }]}
+                              layout={plotLayout}
+                              useResizeHandler={true}
+                              style={{ width: '100%', height: '100%', minHeight: '300px' }}
+                              config={{ displayModeBar: false }}
+                            />
+                          );
+                        }
+                        
+                        return null;
+                      })()}
                   </div>
                 </div>
-              )}
-
-              {isPie && (
-                <motion.div className="card" style={{ height: '100%' }}>
-                  <div className="flex-between" style={{ marginBottom: '24px' }}>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Composition</h3>
-                    <select className="search-input" value={pieCol} onChange={e => setPieCol(e.target.value)} style={{ padding: '4px 8px', width: 'auto' }}>
-                      {strCols.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ height: '300px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
-                          {pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </motion.div>
               )}
             </motion.div>
           );
@@ -285,3 +296,4 @@ export default function DashboardStage({ headers, types, rows, filename, onProce
     </motion.div>
   );
 }
+

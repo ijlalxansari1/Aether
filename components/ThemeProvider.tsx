@@ -11,16 +11,12 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType>({ theme: 'light', setTheme: () => {} });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>('dark');
 
   useEffect(() => {
-    const saved = localStorage.getItem('aether-theme') as Theme;
-    if (saved) {
-      setTheme(saved);
-      document.documentElement.setAttribute('data-theme', saved);
-    } else {
-      document.documentElement.setAttribute('data-theme', 'light');
-    }
+    // Strictly enforcing the dark theme for the Aether aesthetic
+    setTheme('dark');
+    document.documentElement.setAttribute('data-theme', 'dark');
   }, []);
 
   const handleSetTheme = (t: Theme) => {

@@ -4,6 +4,8 @@ import { useRef, useState } from 'react';
 import { DataRow } from '@/lib/types';
 import { SAMPLE_DATASETS } from '@/lib/samples';
 import { motion, AnimatePresence } from 'framer-motion';
+import { inferTypes, detectAnomalies } from '@/lib/dataUtils';
+import { Cloud, Snowflake, Database, FileText, Download } from 'lucide-react';
 
 interface IngestStageProps {
   onIngest: (headers: string[], rows: DataRow[], filename: string, type: 'csv'|'api'|'pdf'|'db') => void;
@@ -100,6 +102,16 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
     const hasDates = dataset.headers.some((h: string) => h.toLowerCase().includes('date') || h.toLowerCase().includes('time'));
     if (hasDates) {
       recs.push("Time-Series: Date/time columns detected. Ensure standardization (e.g. ISO 8601) during the Transform phase to enable temporal joins.");
+    }
+    
+    // Intelligent Anomaly Check
+    if (dataset.rows.length > 0) {
+      const types = inferTypes(dataset.headers, dataset.rows);
+      const anomalies = detectAnomalies(dataset.rows, types);
+      if (anomalies.length > 0) {
+        const perc = ((anomalies.length / dataset.rows.length) * 100).toFixed(1);
+        recs.push(`Pre-Ingestion Scan: Detected ${anomalies.length} anomalous rows (${perc}%) that fall outside standard distributions. Recommend reviewing in the Analyze stage.`);
+      }
     }
 
     return recs;
@@ -359,14 +371,6 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
           
           const hdrs = r.meta.fields || [];
           
-          // Data Contract Validation (Schema Drift)
-          if (enableContract) {
-            const expectedCols = parseInt(contractCols, 10);
-            if (!isNaN(expectedCols) && hdrs.length !== expectedCols) {
-              return onError(`SCHEMA DRIFT DETECTED: Contract expected ${expectedCols} columns, but received ${hdrs.length} columns.`);
-            }
-          }
-
           onIngest(hdrs, r.data, safeName, 'csv');
         }
       });
@@ -401,67 +405,47 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
       <motion.div variants={itemVariants} style={{ marginBottom: '32px' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'rgba(99,102,241,0.15)', color: 'var(--accent)', padding: '6px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, marginBottom: '20px', border: '1px solid rgba(99,102,241,0.3)' }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 10px var(--accent)' }} />
-          Step 1 of 5 · Extract
+          Integration Hub
         </div>
-        <h1 style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em' }}>Integration Hub</h1>
+        <h1 style={{ fontSize: '36px', fontWeight: 800, margin: '0 0 8px 0', letterSpacing: '-0.02em', background: 'linear-gradient(to right, #fff, var(--cyan))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Connect Data</h1>
         <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: '16px' }}>
-          Connect a source to begin ingestion. All data is encrypted and consent-stamped on arrival.
+          Consolidated ingestion engine. Extract metadata and records from files, databases, cloud sources, or APIs.
         </p>
       </motion.div>
 
 
-      {/* Enterprise Toggles */}
-      <motion.div variants={itemVariants} style={{ display: 'flex', gap: '24px', marginBottom: '32px', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <input type="checkbox" id="streamToggle" checked={isStreaming} onChange={e => setIsStreaming(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: 'var(--emerald)' }} />
-          <div>
-            <label htmlFor="streamToggle" style={{ display: 'block', fontWeight: 600, color: isStreaming ? 'var(--emerald)' : 'var(--text-primary)', cursor: 'pointer' }}>Enable Streaming Mode</label>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Simulate real-time ingestion (25 rows/sec) and jump to live Dashboard.</span>
-          </div>
-        </div>
 
-        <div style={{ width: '1px', background: 'var(--border)' }}></div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <input type="checkbox" id="contractToggle" checked={enableContract} onChange={e => setEnableContract(e.target.checked)} style={{ width: '18px', height: '18px', accentColor: 'var(--amber)' }} />
-          <div>
-            <label htmlFor="contractToggle" style={{ display: 'block', fontWeight: 600, color: enableContract ? 'var(--amber)' : 'var(--text-primary)', cursor: 'pointer' }}>Enforce Data Contract</label>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Require exactly:</span>
-              <input type="number" value={contractCols} onChange={e => setContractCols(e.target.value)} disabled={!enableContract} style={{ width: '60px', background: 'transparent', border: '1px solid var(--border)', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }} />
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>columns to prevent schema drift.</span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
 
       {/* Tabs */}
-      <motion.div variants={itemVariants} style={{ display: 'flex', gap: '32px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '32px', position: 'relative' }}>
-        {['enterprise', 'local', 'samples'].map(tab => (
-          <div 
-            key={tab}
-            onClick={() => setActiveTab(tab as any)}
-            style={{ 
-              padding: '0 0 16px 0', 
-              color: activeTab === tab ? 'var(--cyan)' : 'var(--text-secondary)', 
-              fontSize: '15px', 
-              fontWeight: activeTab === tab ? 600 : 400, 
-              cursor: 'pointer',
-              position: 'relative'
-            }}
-          >
-            {tab === 'enterprise' ? 'Cloud & databases' : tab === 'local' ? 'Local & APIs' : 'Sample datasets'}
-            {activeTab === tab && (
-              <motion.div 
-                layoutId="activeTab"
-                style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }}
-              />
-            )}
-          </div>
-        ))}
-      </motion.div>
+      {!hasData && (
+        <motion.div variants={itemVariants} style={{ display: 'flex', gap: '32px', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '32px', position: 'relative' }}>
+          {['enterprise', 'local', 'samples'].map(tab => (
+            <div 
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              style={{ 
+                padding: '0 0 16px 0', 
+                color: activeTab === tab ? 'var(--cyan)' : 'var(--text-secondary)', 
+                fontSize: '15px', 
+                fontWeight: activeTab === tab ? 600 : 400, 
+                cursor: 'pointer',
+                position: 'relative'
+              }}
+            >
+              {tab === 'enterprise' ? 'Cloud & databases' : tab === 'local' ? 'Local & APIs' : 'Sample datasets'}
+              {activeTab === tab && (
+                <motion.div 
+                  layoutId="activeTab"
+                  style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }}
+                />
+              )}
+            </div>
+          ))}
+        </motion.div>
+      )}
 
         <AnimatePresence mode="wait">
+          {!hasData && (
           <motion.div 
             key={activeTab}
             initial={{ opacity: 0, y: 10 }}
@@ -474,7 +458,7 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
               <>
                 <motion.div whileHover={{ y: -4, borderColor: 'var(--sky)', boxShadow: '0 10px 30px rgba(56,189,248,0.1)' }} onClick={() => setShowSfModal(true)} className="card" style={{ cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-                    <div style={{ width: '48px', height: '48px', background: 'rgba(56,189,248,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>❄️</div>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(56,189,248,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8' }}><Snowflake size={24} /></div>
                     <div style={{ background: 'rgba(56,189,248,0.15)', color: 'var(--sky)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Data Warehouse</div>
                   </div>
                   <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>Snowflake</h3>
@@ -490,7 +474,7 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
                 </motion.div>
                 <motion.div whileHover={{ y: -4, borderColor: 'var(--amber)', boxShadow: '0 10px 30px rgba(245,158,11,0.1)' }} onClick={() => setShowS3Modal(true)} className="card" style={{ cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-                    <div style={{ width: '48px', height: '48px', background: 'rgba(245,158,11,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>☁️</div>
+                    <div style={{ width: '48px', height: '48px', background: 'rgba(245,158,11,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}><Cloud size={24} /></div>
                     <div style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--amber)', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, height: 'fit-content' }}>Object Storage</div>
                   </div>
                   <h3 style={{ fontSize: '18px', fontWeight: 700, margin: '0 0 12px 0' }}>AWS S3</h3>
@@ -564,6 +548,7 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
               </>
             )}
           </motion.div>
+          )}
         </AnimatePresence>
 
 
@@ -848,12 +833,20 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
         </div>
       )}
 
-      {/* Data Preview */}
-      <motion.div variants={itemVariants} style={{ marginBottom: '40px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--sky)' }}></div>
-          <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '1px', color: 'var(--text-secondary)' }}>DATA PREVIEW</span>
+      {/* Continue Button & Data Preview Header */}
+      <motion.div variants={itemVariants} style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--sky)', boxShadow: '0 0 10px var(--sky)' }}></div>
+          <span style={{ fontSize: '13px', fontWeight: 700, letterSpacing: '1px', color: 'var(--cyan)' }}>DATA PREVIEW</span>
         </div>
+        {hasData && (
+          <button className="btn btn-primary" onClick={onProceed} style={{ background: 'linear-gradient(135deg, var(--cyan), var(--accent))', color: '#fff', padding: '12px 24px', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 15px rgba(99, 102, 241, 0.4)', transition: 'transform 0.2s', letterSpacing: '0.5px' }}>
+            Continue to Discovery →
+          </button>
+        )}
+      </motion.div>
+      
+      <motion.div variants={itemVariants} style={{ marginBottom: '40px' }}>
         <div className="card" style={{ overflowX: 'auto', padding: 0, minHeight: '100px', display: 'flex', flexDirection: 'column' }}>
           {datasets.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -948,14 +941,6 @@ export default function IngestStage({ onIngest, logs, hasData, datasets, onProce
           ))}
         </div>
       </div>
-
-      {hasData && (
-        <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
-          <button className="btn btn-primary" onClick={onProceed} style={{ background: 'var(--accent)', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer' }}>
-            Continue to Pipeline →
-          </button>
-        </div>
-      )}
 
     </motion.div>
   );

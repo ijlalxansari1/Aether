@@ -229,7 +229,7 @@ export default function CleanStage({
                   ))}
                 </div>
                 <div style={{ marginTop: 24 }}>
-                  <button className="btn btn-primary" onClick={onApplyAll} style={{ width: '100%', padding: '12px', background: 'var(--bg-card-hover)', border: '1px solid var(--emerald)', color: 'var(--emerald)', fontWeight: 700 }}>⚡ Auto-Clean All Issues</button>
+                  <button className="btn btn-primary" onClick={onApplyAll} style={{ width: '100%', padding: '12px', background: 'var(--bg-card-hover)', border: '1px solid var(--emerald)', color: 'var(--emerald)', fontWeight: 700 }}>⚡ Context-Aware Auto-Clean</button>
                 </div>
               </motion.div>
             )}

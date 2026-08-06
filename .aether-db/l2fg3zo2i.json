@@ -1,0 +1,747 @@
+{
+  "id": "l2fg3zo2i",
+  "name": "sales",
+  "headers": [
+    "month",
+    "region",
+    "product",
+    "revenue",
+    "units",
+    "margin_pct",
+    "cost",
+    "rep",
+    "returned"
+  ],
+  "rows": [
+    {
+      "month": "Jan",
+      "region": "North",
+      "product": "Product A",
+      "revenue": 43043,
+      "units": 249,
+      "margin_pct": 31.3,
+      "cost": 38352,
+      "rep": "Alice",
+      "returned": null
+    },
+    {
+      "month": "Feb",
+      "region": "South",
+      "product": "Product B",
+      "revenue": 34630,
+      "units": 166,
+      "margin_pct": 13.6,
+      "cost": 24885,
+      "rep": "Bob",
+      "returned": 4
+    },
+    {
+      "month": "Mar",
+      "region": "East",
+      "product": "Product C",
+      "revenue": 50143,
+      "units": 193,
+      "margin_pct": 15.4,
+      "cost": 38065,
+      "rep": "Charlie",
+      "returned": 10
+    },
+    {
+      "month": "Apr",
+      "region": "West",
+      "product": "Product D",
+      "revenue": 38707,
+      "units": 250,
+      "margin_pct": 36.5,
+      "cost": 23735,
+      "rep": "Diana",
+      "returned": 9
+    },
+    {
+      "month": "May",
+      "region": "Central",
+      "product": "Product A",
+      "revenue": 19375,
+      "units": 235,
+      "margin_pct": 36.1,
+      "cost": 13152,
+      "rep": "Edward",
+      "returned": 5
+    },
+    {
+      "month": "Jun",
+      "region": "North",
+      "product": "Product B",
+      "revenue": 56744,
+      "units": 162,
+      "margin_pct": 36.1,
+      "cost": 41297,
+      "rep": "Fiona",
+      "returned": 2
+    },
+    {
+      "month": "Jul",
+      "region": "South",
+      "product": "Product C",
+      "revenue": 21530,
+      "units": 185,
+      "margin_pct": 15.3,
+      "cost": 13885,
+      "rep": "George",
+      "returned": 0
+    },
+    {
+      "month": "Aug",
+      "region": "East",
+      "product": "Product D",
+      "revenue": 45486,
+      "units": 70,
+      "margin_pct": 39.8,
+      "cost": 35897,
+      "rep": "Hannah",
+      "returned": null
+    },
+    {
+      "month": "Sep",
+      "region": "West",
+      "product": "Product A",
+      "revenue": 13336,
+      "units": 237,
+      "margin_pct": 29.6,
+      "cost": 8888,
+      "rep": "Alice",
+      "returned": 7
+    },
+    {
+      "month": "Oct",
+      "region": "Central",
+      "product": "Product B",
+      "revenue": 47570,
+      "units": 85,
+      "margin_pct": 14.3,
+      "cost": 29003,
+      "rep": "Bob",
+      "returned": 3
+    },
+    {
+      "month": "Nov",
+      "region": "North",
+      "product": "Product C",
+      "revenue": 35274,
+      "units": 200,
+      "margin_pct": 24.5,
+      "cost": 25187,
+      "rep": "Charlie",
+      "returned": 8
+    },
+    {
+      "month": "Dec",
+      "region": "South",
+      "product": "Product D",
+      "revenue": 33335,
+      "units": 76,
+      "margin_pct": 36,
+      "cost": 20754,
+      "rep": "Diana",
+      "returned": 3
+    },
+    {
+      "month": "Jan",
+      "region": "East",
+      "product": "Product A",
+      "revenue": 58255,
+      "units": 127,
+      "margin_pct": 30.8,
+      "cost": 38005,
+      "rep": "Edward",
+      "returned": 5
+    },
+    {
+      "month": "Feb",
+      "region": "West",
+      "product": "Product B",
+      "revenue": 46462,
+      "units": 186,
+      "margin_pct": 10.8,
+      "cost": 32495,
+      "rep": "Fiona",
+      "returned": 8
+    },
+    {
+      "month": "Mar",
+      "region": "Central",
+      "product": "Product C",
+      "revenue": 55716,
+      "units": 88,
+      "margin_pct": 29.1,
+      "cost": 35380,
+      "rep": "George",
+      "returned": null
+    },
+    {
+      "month": "Apr",
+      "region": "North",
+      "product": "Product D",
+      "revenue": 26552,
+      "units": 128,
+      "margin_pct": 23.1,
+      "cost": 22460,
+      "rep": "Hannah",
+      "returned": 9
+    },
+    {
+      "month": "May",
+      "region": "South",
+      "product": "Product A",
+      "revenue": 56441,
+      "units": 225,
+      "margin_pct": 39.7,
+      "cost": 43431,
+      "rep": "Alice",
+      "returned": 8
+    },
+    {
+      "month": "Jun",
+      "region": "East",
+      "product": "Product B",
+      "revenue": 42972,
+      "units": 109,
+      "margin_pct": 19.1,
+      "cost": 28489,
+      "rep": "Bob",
+      "returned": 5
+    },
+    {
+      "month": "Jul",
+      "region": "West",
+      "product": "Product C",
+      "revenue": 46626,
+      "units": 237,
+      "margin_pct": 11.9,
+      "cost": 36806,
+      "rep": "Charlie",
+      "returned": 7
+    },
+    {
+      "month": "Aug",
+      "region": "Central",
+      "product": "Product D",
+      "revenue": 47222,
+      "units": 96,
+      "margin_pct": 14.2,
+      "cost": 34643,
+      "rep": "Diana",
+      "returned": 5
+    },
+    {
+      "month": "Sep",
+      "region": "North",
+      "product": "Product A",
+      "revenue": 30054,
+      "units": 152,
+      "margin_pct": 26.6,
+      "cost": 23358,
+      "rep": "Edward",
+      "returned": 4
+    },
+    {
+      "month": "Oct",
+      "region": "South",
+      "product": "Product B",
+      "revenue": 27029,
+      "units": 54,
+      "margin_pct": 25.4,
+      "cost": 20103,
+      "rep": "Fiona",
+      "returned": null
+    },
+    {
+      "month": "Nov",
+      "region": "East",
+      "product": "Product C",
+      "revenue": 24516,
+      "units": 90,
+      "margin_pct": 25.7,
+      "cost": 21968,
+      "rep": "George",
+      "returned": 2
+    },
+    {
+      "month": "Dec",
+      "region": "West",
+      "product": "Product D",
+      "revenue": 27462,
+      "units": 168,
+      "margin_pct": 33.7,
+      "cost": 19875,
+      "rep": "Hannah",
+      "returned": 1
+    },
+    {
+      "month": "Jan",
+      "region": "Central",
+      "product": "Product A",
+      "revenue": 49654,
+      "units": 105,
+      "margin_pct": 24.8,
+      "cost": 41652,
+      "rep": "Alice",
+      "returned": 8
+    },
+    {
+      "month": "Feb",
+      "region": "North",
+      "product": "Product B",
+      "revenue": 29689,
+      "units": 211,
+      "margin_pct": 39.1,
+      "cost": 21129,
+      "rep": "Bob",
+      "returned": 2
+    },
+    {
+      "month": "Mar",
+      "region": "South",
+      "product": "Product C",
+      "revenue": 28125,
+      "units": 246,
+      "margin_pct": 13.7,
+      "cost": 16980,
+      "rep": "Charlie",
+      "returned": 9
+    },
+    {
+      "month": "Apr",
+      "region": "East",
+      "product": "Product D",
+      "revenue": 11502,
+      "units": 171,
+      "margin_pct": 23.9,
+      "cost": 10283,
+      "rep": "Diana",
+      "returned": 7
+    },
+    {
+      "month": "May",
+      "region": "West",
+      "product": "Product A",
+      "revenue": 33691,
+      "units": 95,
+      "margin_pct": 32.4,
+      "cost": 27817,
+      "rep": "Edward",
+      "returned": null
+    },
+    {
+      "month": "Jun",
+      "region": "Central",
+      "product": "Product B",
+      "revenue": 26605,
+      "units": 78,
+      "margin_pct": 39.6,
+      "cost": 16519,
+      "rep": "Fiona",
+      "returned": 3
+    },
+    {
+      "month": "Jul",
+      "region": "North",
+      "product": "Product C",
+      "revenue": 21428,
+      "units": 156,
+      "margin_pct": 20.2,
+      "cost": 18924,
+      "rep": "George",
+      "returned": 1
+    },
+    {
+      "month": "Aug",
+      "region": "South",
+      "product": "Product D",
+      "revenue": 50139,
+      "units": 72,
+      "margin_pct": 14.9,
+      "cost": 32256,
+      "rep": "Hannah",
+      "returned": 8
+    },
+    {
+      "month": "Sep",
+      "region": "East",
+      "product": "Product A",
+      "revenue": 55202,
+      "units": 117,
+      "margin_pct": 36.7,
+      "cost": 37073,
+      "rep": "Alice",
+      "returned": 3
+    },
+    {
+      "month": "Oct",
+      "region": "West",
+      "product": "Product B",
+      "revenue": 50894,
+      "units": 151,
+      "margin_pct": 36.7,
+      "cost": 41702,
+      "rep": "Bob",
+      "returned": 4
+    },
+    {
+      "month": "Nov",
+      "region": "Central",
+      "product": "Product C",
+      "revenue": 56339,
+      "units": 107,
+      "margin_pct": 19.1,
+      "cost": 49659,
+      "rep": "Charlie",
+      "returned": 10
+    },
+    {
+      "month": "Dec",
+      "region": "North",
+      "product": "Product D",
+      "revenue": 16417,
+      "units": 89,
+      "margin_pct": 26.3,
+      "cost": 9993,
+      "rep": "Diana",
+      "returned": null
+    },
+    {
+      "month": "Jan",
+      "region": "South",
+      "product": "Product A",
+      "revenue": 37286,
+      "units": 131,
+      "margin_pct": 27.5,
+      "cost": 31028,
+      "rep": "Edward",
+      "returned": 0
+    },
+    {
+      "month": "Feb",
+      "region": "East",
+      "product": "Product B",
+      "revenue": 37471,
+      "units": 156,
+      "margin_pct": 25.1,
+      "cost": 23941,
+      "rep": "Fiona",
+      "returned": 2
+    },
+    {
+      "month": "Mar",
+      "region": "West",
+      "product": "Product C",
+      "revenue": 37033,
+      "units": 219,
+      "margin_pct": 21.7,
+      "cost": 26967,
+      "rep": "George",
+      "returned": 0
+    },
+    {
+      "month": "Apr",
+      "region": "Central",
+      "product": "Product D",
+      "revenue": 38861,
+      "units": 83,
+      "margin_pct": 32.9,
+      "cost": 27963,
+      "rep": "Hannah",
+      "returned": 3
+    },
+    {
+      "month": "May",
+      "region": "North",
+      "product": "Product A",
+      "revenue": 14691,
+      "units": 239,
+      "margin_pct": 27.9,
+      "cost": 10735,
+      "rep": "Alice",
+      "returned": 9
+    },
+    {
+      "month": "Jun",
+      "region": "South",
+      "product": "Product B",
+      "revenue": 28597,
+      "units": 247,
+      "margin_pct": 27.8,
+      "cost": 20148,
+      "rep": "Bob",
+      "returned": 9
+    },
+    {
+      "month": "Jul",
+      "region": "East",
+      "product": "Product C",
+      "revenue": 41207,
+      "units": 93,
+      "margin_pct": 21.8,
+      "cost": 31023,
+      "rep": "Charlie",
+      "returned": null
+    },
+    {
+      "month": "Aug",
+      "region": "West",
+      "product": "Product D",
+      "revenue": 24986,
+      "units": 208,
+      "margin_pct": 37.3,
+      "cost": 16975,
+      "rep": "Diana",
+      "returned": 5
+    },
+    {
+      "month": "Sep",
+      "region": "Central",
+      "product": "Product A",
+      "revenue": 25199,
+      "units": 221,
+      "margin_pct": 11.1,
+      "cost": 19130,
+      "rep": "Edward",
+      "returned": 8
+    },
+    {
+      "month": "Oct",
+      "region": "North",
+      "product": "Product B",
+      "revenue": 51557,
+      "units": 148,
+      "margin_pct": 16.3,
+      "cost": 39493,
+      "rep": "Fiona",
+      "returned": 10
+    },
+    {
+      "month": "Nov",
+      "region": "South",
+      "product": "Product C",
+      "revenue": 42482,
+      "units": 81,
+      "margin_pct": 28.8,
+      "cost": 25587,
+      "rep": "George",
+      "returned": 7
+    },
+    {
+      "month": "Dec",
+      "region": "East",
+      "product": "Product D",
+      "revenue": 17625,
+      "units": 61,
+      "margin_pct": 33.8,
+      "cost": 13337,
+      "rep": "Hannah",
+      "returned": 6
+    },
+    {
+      "month": "Jan",
+      "region": "West",
+      "product": "Product A",
+      "revenue": 45713,
+      "units": 177,
+      "margin_pct": 25,
+      "cost": 28256,
+      "rep": "Alice",
+      "returned": 2
+    },
+    {
+      "month": "Feb",
+      "region": "Central",
+      "product": "Product B",
+      "revenue": 32535,
+      "units": 135,
+      "margin_pct": 32.9,
+      "cost": 20705,
+      "rep": "Bob",
+      "returned": null
+    },
+    {
+      "month": "Mar",
+      "region": "North",
+      "product": "Product C",
+      "revenue": 30459,
+      "units": 174,
+      "margin_pct": 28.7,
+      "cost": 18403,
+      "rep": "Charlie",
+      "returned": 8
+    },
+    {
+      "month": "Apr",
+      "region": "South",
+      "product": "Product D",
+      "revenue": 24798,
+      "units": 138,
+      "margin_pct": 23.9,
+      "cost": 18973,
+      "rep": "Diana",
+      "returned": 9
+    },
+    {
+      "month": "May",
+      "region": "East",
+      "product": "Product A",
+      "revenue": 18423,
+      "units": 81,
+      "margin_pct": 35.9,
+      "cost": 11877,
+      "rep": "Edward",
+      "returned": 8
+    },
+    {
+      "month": "Jun",
+      "region": "West",
+      "product": "Product B",
+      "revenue": 34299,
+      "units": 213,
+      "margin_pct": 33,
+      "cost": 22576,
+      "rep": "Fiona",
+      "returned": 1
+    },
+    {
+      "month": "Jul",
+      "region": "Central",
+      "product": "Product C",
+      "revenue": 13721,
+      "units": 108,
+      "margin_pct": 14.9,
+      "cost": 8617,
+      "rep": "George",
+      "returned": 2
+    },
+    {
+      "month": "Aug",
+      "region": "North",
+      "product": "Product D",
+      "revenue": 29623,
+      "units": 135,
+      "margin_pct": 34.5,
+      "cost": 21421,
+      "rep": "Hannah",
+      "returned": 10
+    },
+    {
+      "month": "Sep",
+      "region": "South",
+      "product": "Product A",
+      "revenue": 55792,
+      "units": 51,
+      "margin_pct": 25.7,
+      "cost": 50126,
+      "rep": "Alice",
+      "returned": null
+    },
+    {
+      "month": "Oct",
+      "region": "East",
+      "product": "Product B",
+      "revenue": 42423,
+      "units": 77,
+      "margin_pct": 20.5,
+      "cost": 30320,
+      "rep": "Bob",
+      "returned": 0
+    },
+    {
+      "month": "Nov",
+      "region": "West",
+      "product": "Product C",
+      "revenue": 47633,
+      "units": 195,
+      "margin_pct": 12.8,
+      "cost": 42114,
+      "rep": "Charlie",
+      "returned": 7
+    },
+    {
+      "month": "Dec",
+      "region": "Central",
+      "product": "Product D",
+      "revenue": 29508,
+      "units": 138,
+      "margin_pct": 25.6,
+      "cost": 21183,
+      "rep": "Diana",
+      "returned": 6
+    }
+  ],
+  "types": {
+    "month": "string",
+    "region": "string",
+    "product": "string",
+    "revenue": "number",
+    "units": "number",
+    "margin_pct": "number",
+    "cost": "number",
+    "rep": "string",
+    "returned": "number"
+  },
+  "schema": [
+    {
+      "name": "month",
+      "type": "string",
+      "nullCount": 0,
+      "uniqueCount": 12
+    },
+    {
+      "name": "region",
+      "type": "string",
+      "nullCount": 0,
+      "uniqueCount": 5
+    },
+    {
+      "name": "product",
+      "type": "string",
+      "nullCount": 0,
+      "uniqueCount": 4
+    },
+    {
+      "name": "revenue",
+      "type": "number",
+      "nullCount": 0,
+      "uniqueCount": 60
+    },
+    {
+      "name": "units",
+      "type": "number",
+      "nullCount": 0,
+      "uniqueCount": 60
+    },
+    {
+      "name": "margin_pct",
+      "type": "number",
+      "nullCount": 0,
+      "uniqueCount": 60
+    },
+    {
+      "name": "cost",
+      "type": "number",
+      "nullCount": 0,
+      "uniqueCount": 60
+    },
+    {
+      "name": "rep",
+      "type": "string",
+      "nullCount": 0,
+      "uniqueCount": 8
+    },
+    {
+      "name": "returned",
+      "type": "number",
+      "nullCount": 9,
+      "uniqueCount": 60
+    }
+  ],
+  "appliedOps": [],
+  "sourceType": "csv",
+  "ingestedAt": "2026-08-06T15:30:23.771Z"
+}

@@ -42,12 +42,13 @@ export default function GlobalSidebar() {
         <img src="/logo.svg" alt="AETHER Logo" style={{ width: '32px', height: '32px', flexShrink: 0 }} />
         <motion.div variants={textVariants} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '0.5px', color: 'var(--text-primary)' }}>Aether</span>
+          <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.1)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>v1.0</span>
         </motion.div>
       </div>
 
       <nav className="sidebar-nav" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 12px', flex: 1 }}>
-        <SidebarItem href="/" icon="📊" label="Pipelines" active={pathname === '/'} isCollapsed={isCollapsed} />
-        <SidebarItem href="/ethics" icon="⚖️" label="Ethics & Gov" active={pathname === '/ethics'} isCollapsed={isCollapsed} />
+        <SidebarItem href="/" icon="📊" label="Pipelines" active={pathname === '/' || pathname.startsWith('/workspace')} isCollapsed={isCollapsed} />
+        <SidebarItem href="/ethics" icon="⚖️" label="Ethics & Governance" active={pathname === '/ethics'} isCollapsed={isCollapsed} />
         <SidebarItem href="/architecture" icon="🗺️" label="Architecture" active={pathname === '/architecture'} isCollapsed={isCollapsed} />
         <SidebarItem href="/copilot" icon="🤖" label="AI Copilot" active={pathname === '/copilot'} isCollapsed={isCollapsed} />
         
@@ -65,7 +66,7 @@ export default function GlobalSidebar() {
         }}>
           <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--emerald)', flexShrink: 0, boxShadow: '0 0 8px var(--emerald)' }} />
           <motion.span variants={textVariants} style={{ fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            System Online
+            All Systems Operational
           </motion.span>
         </div>
       </div>
@@ -80,7 +81,7 @@ function SidebarItem({ href, icon, label, active, isCollapsed }: { href: string,
   };
 
   return (
-    <Link href={href} style={{
+    <Link href={href} className={active ? 'active' : ''} style={{
       display: 'flex',
       alignItems: 'center',
       gap: '16px',

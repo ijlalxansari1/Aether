@@ -1,6 +1,14 @@
 import { ColumnType, DataRow, ColProfile, QualityIssue } from './types';
 
-// ─── Type Inference ──────────────────────────────────────────────────────────
+export function isEmptyValue(val: unknown): boolean {
+  if (val === null || val === undefined) return true;
+  if (typeof val === 'number' && isNaN(val)) return true;
+  if (typeof val === 'string') {
+    const t = val.trim().toLowerCase();
+    return t === '' || t === 'na' || t === 'n/a' || t === 'null' || t === 'nan' || t === 'undefined';
+  }
+  return false;
+}// ─── Type Inference ──────────────────────────────────────────────────────────
 export function isSmartNumber(v: unknown): boolean {
   if (typeof v === 'number') return true;
   if (typeof v !== 'string') return false;
@@ -52,6 +60,11 @@ export function inferType(values: unknown[]): ColumnType {
   if (nonNull.every(v => typeof v === 'boolean' || v === 'true' || v === 'false')) return 'boolean';
   if (nonNull.every(v => typeof v === 'number' && !isNaN(v as number))) return 'number';
   if (nonNull.every(v => typeof v === 'string' && !isNaN(Date.parse(v as string)) && (v as string).includes('-'))) return 'date';
+  
+  // Categorical Inference: if string, but very few unique values relative to total (or < 20 absolute)
+  const uniqueVals = new Set(nonNull);
+  if (uniqueVals.size < 20 || (uniqueVals.size / nonNull.length) < 0.05) return 'string'; // Keep as string for MVP type compatibility, but we can treat as categorical downstream.
+  
   return 'string';
 }
 
@@ -109,7 +122,7 @@ export function detectIssues(headers: string[], rows: DataRow[], types: Record<s
 
   // Nulls per column
   headers.forEach(h => {
-    const nulls = rows.filter(r => r[h] === null || r[h] === undefined || r[h] === '').length;
+    const nulls = rows.filter(r => isEmptyValue(r[h])).length;
     if (nulls > 0) {
       const ratio = nulls / rows.length;
       issues.push({ type: 'null', column: h, count: nulls, severity: ratio > 0.1 ? 'high' : 'medium' });
@@ -215,11 +228,34 @@ export function applyCleanOp(op: string, rows: DataRow[], headers: string[], typ
       if (types[h] === 'number') {
         const vals = data.map(r => Number(r[h])).filter(v => !isNaN(v)).sort((a, b) => a - b);
         const median = vals[Math.floor(vals.length / 2)] ?? 0;
-        data.forEach(r => { if (r[h] === null || r[h] === undefined || r[h] === '') r[h] = median; });
+        data.forEach(r => { if (isEmptyValue(r[h])) r[h] = median; });
+      } else if (types[h] === 'string') {
+        const counts = data.reduce((acc, r) => {
+          const val = r[h];
+          if (!isEmptyValue(val)) {
+            const key = String(val);
+            acc[key] = (Number(acc[key]) || 0) + 1;
+          }
+          return acc;
+        }, {} as Record<string, number>);
+        let mode = 'Unknown';
+        let maxCount = 0;
+        for (const [key, valCount] of Object.entries(counts)) {
+          const count = Number(valCount) || 0;
+          if (count > maxCount) {
+            maxCount = count;
+            mode = key;
+          }
+        }
+        data.forEach(r => { if (isEmptyValue(r[h])) r[h] = mode; });
       } else {
-        data.forEach(r => { if (r[h] === null || r[h] === undefined || r[h] === '') r[h] = 'Unknown'; });
+        data.forEach(r => { if (isEmptyValue(r[h])) r[h] = 'Unknown'; });
       }
     });
+  }
+
+  if (op === 'drop_nulls') {
+    data = data.filter(r => !headers.some(h => isEmptyValue(r[h])));
   }
 
   if (op === 'cap_outliers') {
@@ -412,6 +448,48 @@ export function findTopCorrelations(rows: DataRow[], numCols: string[]): {col1: 
   return pairs.sort((a, b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 5); // top 5
 }
 
+// ─── Intelligent Narrative Generation ────────────────────────────────────────
+export function generateSmartNarrative(rows: DataRow[], types: Record<string, ColumnType>): string {
+  if (!rows || rows.length === 0) return "No data available for analysis.";
+
+  const numCols = Object.keys(types).filter(h => types[h] === 'number');
+  const strCols = Object.keys(types).filter(h => types[h] === 'string');
+  
+  let narrative = `This dataset contains ${rows.length} records with ${Object.keys(types).length} features. `;
+
+  // Outlier detection summary
+  const anomalies = detectAnomalies(rows, types);
+  if (anomalies.length > 0) {
+    const perc = ((anomalies.length / rows.length) * 100).toFixed(1);
+    narrative += `We detected ${anomalies.length} anomalous rows (${perc}% of the data) that fall far outside standard distributions. `;
+  } else {
+    narrative += `The data looks exceptionally clean with no extreme statistical outliers. `;
+  }
+
+  // Correlation summary
+  if (numCols.length >= 2) {
+    const topCorrelations = findTopCorrelations(rows, numCols);
+    if (topCorrelations.length > 0) {
+      const best = topCorrelations[0];
+      const direction = best.score > 0 ? "positive" : "negative";
+      const strength = Math.abs(best.score) > 0.8 ? "very strong" : "moderate";
+      narrative += `There is a ${strength} ${direction} correlation (r=${best.score.toFixed(2)}) between ${best.col1} and ${best.col2}. `;
+    } else {
+      narrative += `There are no strong linear correlations among the numerical variables, suggesting they represent independent dimensions. `;
+    }
+  }
+
+  // Completeness
+  const completeness = completenessPercent(Object.keys(types), rows);
+  if (completeness < 100) {
+    narrative += `Data completeness is at ${completeness}%, meaning some values are missing and may require imputation. `;
+  } else {
+    narrative += `Data completeness is 100%, meaning there are no missing values across all columns. `;
+  }
+
+  return narrative;
+}
+
 // ─── Custom Formula Engine ───────────────────────────────────────────────────
 export function applyCustomFormula(rows: DataRow[], headers: string[], newColName: string, formula: string): DataRow[] {
   // Very basic safe parser. Replaces column names in the formula with r['colName']
@@ -469,46 +547,8 @@ export function detectAnomalies(rows: DataRow[], types: Record<string, ColumnTyp
   return Array.from(anomalyRowIndices);
 }
 
-// ─── Data Contracts Validation ───────────────────────────────────────────────
-import { DataContractRule } from './types';
 
-export function validateDataContract(rows: DataRow[], rules: DataContractRule[]): { valid: DataRow[], quarantined: DataRow[] } {
-  if (!rules || rules.length === 0) return { valid: rows, quarantined: [] };
 
-  const valid: DataRow[] = [];
-  const quarantined: DataRow[] = [];
-
-  for (const r of rows) {
-    let isValid = true;
-    for (const rule of rules) {
-      const val = r[rule.column];
-      
-      if (rule.operator === 'not_null') {
-        if (val === null || val === undefined || val === '') isValid = false;
-      } else if (rule.operator === '==') {
-        if (String(val) !== String(rule.value)) isValid = false;
-      } else if (rule.operator === '!=') {
-        if (String(val) === String(rule.value)) isValid = false;
-      } else if (rule.operator === 'contains') {
-        if (val === null || val === undefined || !String(val).includes(String(rule.value))) isValid = false;
-      } else if (rule.operator === '>') {
-        if (Number(val) <= Number(rule.value) || isNaN(Number(val))) isValid = false;
-      } else if (rule.operator === '<') {
-        if (Number(val) >= Number(rule.value) || isNaN(Number(val))) isValid = false;
-      }
-
-      if (!isValid) break;
-    }
-
-    if (isValid) {
-      valid.push(r);
-    } else {
-      quarantined.push(r);
-    }
-  }
-
-  return { valid, quarantined };
-}
 
 // ─── Version Control Diffing ─────────────────────────────────────────────────
 export interface DiffItem {
@@ -612,16 +652,21 @@ export function splitQuarantine(headers: string[], rows: DataRow[]): { cleanRows
   const cleanRows: DataRow[] = [];
   const quarantinedRows: DataRow[] = [];
 
+  // Only quarantine truly corrupt rows:
+  // 1. Rows where >80% of fields are null/empty
+  // 2. Rows that are completely empty
+  // Normal rows with some missing values are KEPT — they are quality issues, not corruption
+  const corruptThreshold = Math.ceil(headers.length * 0.8);
+
   rows.forEach(row => {
     let nullCount = 0;
     headers.forEach(h => {
-      const val = row[h];
-      if (val === null || val === undefined || val === '' || (typeof val === 'number' && isNaN(val))) {
+      if (isEmptyValue(row[h])) {
         nullCount++;
       }
     });
 
-    if (nullCount > 0) {
+    if (nullCount >= corruptThreshold) {
       quarantinedRows.push(row);
     } else {
       cleanRows.push(row);
@@ -629,4 +674,80 @@ export function splitQuarantine(headers: string[], rows: DataRow[]): { cleanRows
   });
 
   return { cleanRows, quarantinedRows };
+}
+
+// ─── Data Story Generator ─────────────────────────────────────────────────────
+import { StoryBlock } from './types';
+
+export function generateDataStoryLayout(headers: string[], types: Record<string, ColumnType>, rows: DataRow[]): StoryBlock[] {
+  const blocks: StoryBlock[] = [];
+  
+  const numCols = headers.filter(h => types[h] === 'number');
+  const strCols = headers.filter(h => types[h] === 'string');
+  const dateCols = headers.filter(h => types[h] === 'date');
+  
+  // 1. Always start with KPIs
+  blocks.push({
+    id: 'story_kpis',
+    type: 'kpi',
+    title: 'Executive Summary',
+    description: 'High-level metrics summarizing your dataset.',
+    width: '100%',
+  });
+
+  // 2. Time Series
+  if (dateCols.length > 0 && numCols.length > 0) {
+    blocks.push({
+      id: 'story_timeseries',
+      type: 'timeseries',
+      title: 'Trend Over Time',
+      description: `Analyzing how ${numCols[0].replace(/_/g, ' ')} fluctuates over ${dateCols[0].replace(/_/g, ' ')}.`,
+      width: '100%',
+      config: { xCol: dateCols[0], yCol: numCols[0] }
+    });
+  }
+
+  // 3. Correlation
+  if (numCols.length >= 2) {
+    const topCorrs = findTopCorrelations(rows, numCols);
+    if (topCorrs.length > 0) {
+      blocks.push({
+        id: 'story_correlation',
+        type: 'correlation',
+        title: 'Metric Interdependence',
+        description: `We found a strong correlation (r=${topCorrs[0].score.toFixed(2)}) between ${topCorrs[0].col1} and ${topCorrs[0].col2}.`,
+        width: '66.66%',
+        config: { xCol: topCorrs[0].col1, yCol: topCorrs[0].col2 }
+      });
+    }
+  }
+
+  // 4. Composition (Categorical with few unique values)
+  const catCols = strCols.map(col => ({ col, unique: new Set(rows.map(r => r[col])).size })).filter(c => c.unique > 1 && c.unique <= 10);
+  if (catCols.length > 0) {
+    // Prefer column with fewest unique values
+    const bestCat = catCols.sort((a, b) => a.unique - b.unique)[0].col;
+    blocks.push({
+      id: 'story_composition',
+      type: 'composition',
+      title: 'Data Composition',
+      description: `Breakdown of records across different ${bestCat}s.`,
+      width: blocks.length % 2 === 0 ? '100%' : '33.33%',
+      config: { col: bestCat }
+    });
+  }
+
+  // 5. Distribution
+  if (numCols.length > 0) {
+    blocks.push({
+      id: 'story_distribution',
+      type: 'distribution',
+      title: 'Value Distribution',
+      description: `Spread and density of ${numCols[0].replace(/_/g, ' ')} values.`,
+      width: '50%',
+      config: { col: numCols[0] }
+    });
+  }
+
+  return blocks;
 }

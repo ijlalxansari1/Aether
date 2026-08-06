@@ -1,26 +1,30 @@
 'use client';
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import localforage from 'localforage';
 import PipelineBar from '@/components/PipelineBar';
 import IngestStage from '@/components/stages/IngestStage';
-import StoreStage from '@/components/stages/StoreStage';
+import DiscoveryStage from '@/components/stages/DiscoveryStage';
 import CleanStage from '@/components/stages/CleanStage';
 import EthicsStage from '@/components/stages/EthicsStage';
 import AnalyzeStage from '@/components/stages/AnalyzeStage';
 import DashboardStage from '@/components/stages/DashboardStage';
 import ReportStage from '@/components/stages/ReportStage';
+import StoryStage from '@/components/stages/StoryStage';
 import ModelStage from '@/components/stages/ModelStage';
 import EvaluateStage from '@/components/stages/EvaluateStage';
 import DeployStage from '@/components/stages/DeployStage';
+import OrchestrateStage from '@/components/stages/OrchestrateStage';
+import MonitorStage from '@/components/stages/MonitorStage';
 import GlobalSidebar from '@/components/GlobalSidebar';
 import AIAssistant from '@/components/AIAssistant';
 import LandingHero from '@/components/LandingHero';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import PathSelectionStage from '@/components/stages/PathSelectionStage';
 import { Stage, UserPath, DataRow, DataSchema } from '@/lib/types';
 import { inferTypes, detectIssues, applyCleanOp, profileColumn, findReplace, dropColumn, splitQuarantine, smartCastData } from '@/lib/dataUtils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Inbox, Hammer, BarChart3, Presentation, Rocket, Search, User as UserIcon, Save, FolderOpen } from 'lucide-react';
 
 const CLEANING_ALL = ['remove_dups', 'fill_nulls', 'cap_outliers', 'trim_spaces', 'normalize', 'fix_types'];
 
@@ -222,21 +226,50 @@ export default function AetherApp() {
 
   // ── Ingest ──────────────────────────────────────────────────────────────────
   
-  const handleIngest = useCallback((hdrs: string[], rawIncomingRows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv', streaming: boolean = false) => {
+  const router = useRouter(); // add router
+
+  const handleIngest = useCallback(async (hdrs: string[], rawIncomingRows: DataRow[], fname: string, type: 'csv'|'api'|'pdf'|'db' = 'csv', streaming: boolean = false) => {
     // 🧠 Intelligent Feature: Smart Cast currencies/percentages
     const rows = smartCastData(rawIncomingRows, hdrs);
 
-    const ds = { id: Math.random().toString(36).substr(2, 9), name: fname, headers: hdrs, rows, sourceType: type, ingestedAt: new Date() };
+    const dsId = Math.random().toString(36).substr(2, 9);
     
+    // Infer types and schema before saving!
+    const t = inferTypes(hdrs, rows);
+    const sch = hdrs.map(h => {
+      const p = profileColumn(h, t[h], rows);
+      return { name: h, type: t[h], nullCount: p.nulls, uniqueCount: p.unique ?? rows.length };
+    });
+    
+    const { cleanRows, quarantinedRows: badRows } = splitQuarantine(hdrs, rows);
+
+    const ds = { 
+      id: dsId, 
+      name: fname, 
+      headers: hdrs, 
+      rows: cleanRows, 
+      types: t,
+      schema: sch,
+      appliedOps: [],
+      sourceType: type, 
+      ingestedAt: new Date() 
+    };
+    
+    // Save to the new backend DB so the WorkspaceContext can pick it up!
+    try {
+      await fetch('/api/datasets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ds)
+      });
+    } catch (e) {
+      console.error('Failed to save to backend DB', e);
+    }
+
     setDatasets(prev => {
       const next = [...prev, ds];
       
       if (next.length === 1) {
-        const t = inferTypes(hdrs, rows);
-        const sch = hdrs.map(h => {
-          const p = profileColumn(h, t[h], rows);
-          return { name: h, type: t[h], nullCount: p.nulls, uniqueCount: p.unique ?? rows.length };
-        });
         setHeaders(hdrs);
         setTypes(t);
         setSchema(sch);
@@ -271,7 +304,15 @@ export default function AetherApp() {
     ]);
     setShowHero(false);
     showToast(`✓ Loaded ${fname}`, 'success');
-  }, []);
+
+    if (datasets.length === 0) {
+      if (streaming) {
+        router.push(`/workspace/${dsId}/bi`);
+      } else {
+        router.push(`/workspace/${dsId}/de`);
+      }
+    }
+  }, [datasets, router]);
 
 
   // ── Clean Ops ────────────────────────────────────────────────────────────────
@@ -301,13 +342,32 @@ export default function AetherApp() {
   function handleApplyAll() {
     pushHistory();
     let rows = [...cleanedRows];
+    let currentHeaders = [...headers];
+    
+    // Context-Aware Auto-Clean logic:
+    // 1. Drop columns with > 50% nulls
+    const colsToDrop = currentHeaders.filter(h => {
+      const nulls = rows.filter(r => r[h] === null || r[h] === undefined || r[h] === '').length;
+      return nulls / (rows.length || 1) > 0.5;
+    });
+
+    if (colsToDrop.length > 0) {
+      colsToDrop.forEach(col => {
+        const result = dropColumn(col, currentHeaders, rows);
+        currentHeaders = result.headers;
+        rows = result.rows;
+      });
+      setHeaders(currentHeaders);
+      showToast(`Dropped ${colsToDrop.length} highly sparse columns: ${colsToDrop.join(', ')}`, 'info');
+    }
+
     const newOps = new Set(appliedOps);
     CLEANING_ALL.forEach(id => {
-      if (!newOps.has(id)) { rows = applyCleanOp(id, rows, headers, types); newOps.add(id); }
+      if (!newOps.has(id)) { rows = applyCleanOp(id, rows, currentHeaders, types); newOps.add(id); }
     });
     setCleanedRows(rows);
     setAppliedOps(newOps);
-    showToast('✅ All cleaning operations applied!', 'success');
+    showToast('✅ Context-Aware Auto-Clean complete!', 'success');
   }
 
   // ── Advanced Clean ────────────────────────────────────────────────────────────
@@ -353,8 +413,10 @@ export default function AetherApp() {
       {/* Topbar */}
       <header className="topbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: '64px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
         <div className="logo-wrap" style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-          <img src="/logo.svg" alt="AETHER Logo" style={{ width: '24px', height: '24px' }} />
-          <span className="logo-text" style={{ fontWeight: 700, fontSize: '1.25rem', letterSpacing: '-0.02em' }}>Aether</span>
+          <div className="logo-icon" style={{ background: 'linear-gradient(135deg, var(--accent), var(--violet))', borderRadius: '8px', boxShadow: '0 2px 10px rgba(99,102,241,0.4)', padding: '4px' }}>
+            <Rocket size={18} color="#fff" />
+          </div>
+          <span className="logo-text" style={{ fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.02em', background: 'linear-gradient(90deg, #fff, #a1a1aa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Aether</span>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '16px' }}>
             {headers.length > 0 && (
@@ -371,12 +433,14 @@ export default function AetherApp() {
         {(!showHero || rawRows.length > 0) && (
           <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
             <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
-              <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, fontSize: '0.9rem' }}>🔍</span>
+              <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', opacity: 0.5, display: 'flex' }}>
+                <Search size={16} />
+              </span>
               <input 
                 type="text" 
                 placeholder="Search workspaces, data, AI..." 
                 className="search-input" 
-                style={{ width: '100%', padding: '10px 16px 10px 40px', background: 'var(--bg-body)', border: '1px solid var(--border)', borderRadius: '24px', fontSize: '0.9rem', outline: 'none', transition: 'border-color 0.2s' }}
+                style={{ width: '100%', padding: '10px 16px 10px 42px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '24px', fontSize: '0.9rem', outline: 'none', transition: 'all 0.3s' }}
               />
             </div>
           </div>
@@ -385,13 +449,13 @@ export default function AetherApp() {
         <div className="topbar-right" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '16px' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="btn btn-sm btn-secondary" onClick={() => document.getElementById('import-file')?.click()} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              📂 Import Project
+              <FolderOpen size={14} /> Import Project
             </button>
             <input id="import-file" type="file" accept=".json" onChange={importProject} style={{ display: 'none' }} />
             
             {rawRows.length > 0 && (
               <button className="btn btn-sm btn-secondary" onClick={exportProject} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                💾 Export Project
+                <Save size={14} /> Export Project
               </button>
             )}
           </div>
@@ -402,8 +466,8 @@ export default function AetherApp() {
             </button>
           )}
           {user ? (
-            <button style={{ background: 'var(--emerald)', color: '#fff', border: 'none', cursor: 'pointer', padding: '6px 12px', borderRadius: '16px', fontWeight: 600, fontSize: '0.85rem' }} onClick={() => setUser(null)}>
-              👤 {user.email.split('@')[0]}
+            <button style={{ background: 'var(--emerald)', color: '#fff', border: 'none', cursor: 'pointer', padding: '6px 12px', borderRadius: '16px', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setUser(null)}>
+              <UserIcon size={14} /> {user.email.split('@')[0]}
             </button>
           ) : (
             <button className="btn btn-sm btn-primary" onClick={() => setShowAuthModal(true)} style={{ padding: '8px 16px', borderRadius: '20px', fontWeight: 600 }}>Sign In</button>
@@ -422,27 +486,47 @@ export default function AetherApp() {
         <ErrorBoundary>
         <div style={{ display: 'flex', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
           {/* Global Sidebar Navigation */}
-          <aside style={{ width: '240px', background: 'var(--bg-card)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', padding: '16px 0' }}>
-            <div style={{ padding: '0 16px', marginBottom: '8px', fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.05em' }}>Modules</div>
+          <aside className="global-sidebar" style={{ width: '240px', background: 'transparent', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', padding: '24px 0' }}>
+            <div className="sidebar-module-title" style={{ padding: '0 24px', marginBottom: '16px', fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.05em' }}>Modules</div>
             
-            <button onClick={() => setStage('ingest')} style={{ background: stage === 'ingest' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'ingest' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'ingest' ? '3px solid var(--accent)' : '3px solid transparent' }}>
-              <span style={{ fontSize: '18px' }}>📥</span> Ingestion
-            </button>
-            <button onClick={() => setStage('store')} disabled={rawRows.length === 0} style={{ background: stage === 'store' || stage === 'clean' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'store' || stage === 'clean' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'store' || stage === 'clean' ? '3px solid var(--accent)' : '3px solid transparent' }}>
-              <span style={{ fontSize: '18px' }}>🛠️</span> Data Engineer
-            </button>
-            <button onClick={() => setStage('analyze')} disabled={rawRows.length === 0} style={{ background: stage === 'analyze' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'analyze' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'analyze' ? '3px solid var(--accent)' : '3px solid transparent' }}>
-              <span style={{ fontSize: '18px' }}>📊</span> Data Analyst
-            </button>
-            <button onClick={() => setStage('dashboard')} disabled={rawRows.length === 0} style={{ background: stage === 'dashboard' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'dashboard' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'dashboard' ? '3px solid var(--accent)' : '3px solid transparent' }}>
-              <span style={{ fontSize: '18px' }}>📈</span> Business Intel
-            </button>
-            <button onClick={() => setStage('deploy')} disabled={rawRows.length === 0} style={{ background: stage === 'deploy' ? 'var(--bg-card-hover)' : 'transparent', color: stage === 'deploy' ? 'var(--accent)' : 'var(--text-primary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.5 : 1, display: 'flex', alignItems: 'center', gap: '12px', fontSize: '14px', fontWeight: 500, borderLeft: stage === 'deploy' ? '3px solid var(--accent)' : '3px solid transparent' }}>
-              <span style={{ fontSize: '18px' }}>🚀</span> ML Deploy
-            </button>
+            {/* Dynamically filter sidebar modules based on recommendations */}
+            {(() => {
+              const understanding = datasets.length > 0 ? require('@/lib/dataUnderstanding').analyzeDataset(headers, cleanedRows) : null;
+              const recs: import('@/lib/types').AetherRecommendation[] = understanding?.recommendations || [];
+              const hasDashboard = !understanding || recs.some(r => r.category === 'dashboard');
+              const hasML = !understanding || recs.some(r => r.category === 'prediction' && r.id !== 'no_prediction');
+
+              return (
+                <>
+                  <button className={stage === 'ingest' ? 'active' : ''} onClick={() => setStage('ingest')} style={{ background: stage === 'ingest' ? 'rgba(255,255,255,0.05)' : 'transparent', color: stage === 'ingest' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '14px', fontSize: '14px', fontWeight: 600, borderLeft: stage === 'ingest' ? '3px solid var(--cyan)' : '3px solid transparent', transition: 'all 0.2s' }}>
+                    <Inbox size={18} color={stage === 'ingest' ? 'var(--cyan)' : 'currentColor'} /> Ingestion
+                  </button>
+                  <button className={stage === 'discovery' ? 'active' : ''} onClick={() => setStage('discovery')} disabled={rawRows.length === 0} style={{ background: stage === 'discovery' ? 'rgba(255,255,255,0.05)' : 'transparent', color: stage === 'discovery' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '14px', fontSize: '14px', fontWeight: 600, borderLeft: stage === 'discovery' ? '3px solid var(--cyan)' : '3px solid transparent', transition: 'all 0.2s' }}>
+                    <Search size={18} color={stage === 'discovery' ? 'var(--cyan)' : 'currentColor'} /> Data Discovery
+                  </button>
+                  <button className={stage === 'clean' ? 'active' : ''} onClick={() => setStage('clean')} disabled={rawRows.length === 0} style={{ background: stage === 'clean' ? 'rgba(255,255,255,0.05)' : 'transparent', color: stage === 'clean' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '14px', fontSize: '14px', fontWeight: 600, borderLeft: stage === 'clean' ? '3px solid var(--cyan)' : '3px solid transparent', transition: 'all 0.2s' }}>
+                    <Hammer size={18} color={stage === 'clean' ? 'var(--cyan)' : 'currentColor'} /> Data Quality
+                  </button>
+                  <button className={stage === 'analyze' ? 'active' : ''} onClick={() => setStage('analyze')} disabled={rawRows.length === 0} style={{ background: stage === 'analyze' ? 'rgba(255,255,255,0.05)' : 'transparent', color: stage === 'analyze' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '14px', fontSize: '14px', fontWeight: 600, borderLeft: stage === 'analyze' ? '3px solid var(--cyan)' : '3px solid transparent', transition: 'all 0.2s' }}>
+                    <BarChart3 size={18} color={stage === 'analyze' ? 'var(--cyan)' : 'currentColor'} /> Data Analyst
+                  </button>
+                  
+                  {hasDashboard && (
+                    <button className={stage === 'dashboard' ? 'active' : ''} onClick={() => setStage('dashboard')} disabled={rawRows.length === 0} style={{ background: stage === 'dashboard' ? 'rgba(255,255,255,0.05)' : 'transparent', color: stage === 'dashboard' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '14px', fontSize: '14px', fontWeight: 600, borderLeft: stage === 'dashboard' ? '3px solid var(--cyan)' : '3px solid transparent', transition: 'all 0.2s' }}>
+                      <Presentation size={18} color={stage === 'dashboard' ? 'var(--cyan)' : 'currentColor'} /> Business Intel
+                    </button>
+                  )}
+                  
+                  {hasML && (
+                    <button className={stage === 'deploy' ? 'active' : ''} onClick={() => setStage('deploy')} disabled={rawRows.length === 0} style={{ background: stage === 'deploy' ? 'rgba(255,255,255,0.05)' : 'transparent', color: stage === 'deploy' ? 'var(--text-primary)' : 'var(--text-secondary)', border: 'none', padding: '12px 24px', textAlign: 'left', cursor: rawRows.length === 0 ? 'not-allowed' : 'pointer', opacity: rawRows.length === 0 ? 0.4 : 1, display: 'flex', alignItems: 'center', gap: '14px', fontSize: '14px', fontWeight: 600, borderLeft: stage === 'deploy' ? '3px solid var(--cyan)' : '3px solid transparent', transition: 'all 0.2s' }}>
+                      <Rocket size={18} color={stage === 'deploy' ? 'var(--cyan)' : 'currentColor'} /> ML Deploy
+                    </button>
+                  )}
+                </>
+              );
+            })()}
           </aside>
 
-      {/* Stage content */}
       <main className="main-content" style={{ flex: 1, overflowY: 'auto' }}>
         <AnimatePresence mode="wait">
           <motion.div
@@ -459,22 +543,20 @@ export default function AetherApp() {
                 logs={logs}
                 hasData={datasets.length > 0}
                 datasets={datasets}
-                onProceed={() => setStage('store')}
+                onProceed={() => setStage('discovery')}
                 onError={msg => showToast(msg, 'error')}
               />
             )}
-            {stage === 'store' && (
-              <StoreStage
-                datasets={datasets}
+            {stage === 'discovery' && (
+              <DiscoveryStage
                 headers={headers}
-                schema={schema}
                 rows={cleanedRows}
                 filename={filename}
                 ingestedAt={ingestedAt}
+                quarantinedCount={quarantinedRows.length}
+                sourceType={datasets[0]?.sourceType || 'csv'}
                 onProceed={() => setStage('clean')}
-                onSkipClean={() => setStage('path-selection')}
-                onAddDataset={() => setStage('ingest')}
-                onUpdateRows={handleUpdateRows}
+                onNavigate={(tgt) => setStage(tgt as Stage)}
               />
             )}
             {stage === 'clean' && (
@@ -484,7 +566,7 @@ export default function AetherApp() {
                 onAddDataset={() => setStage('ingest')}
                 previousRows={rowHistory.length > 0 ? rowHistory[rowHistory.length - 1].rows : rawRows}
                 issues={issues} appliedOps={appliedOps} onApplyOp={handleApplyOp} onApplyAll={handleApplyAll} 
-                onFindReplace={handleFindReplace} onDropColumn={handleDropColumn} onProceed={() => setStage('path-selection')} 
+                onFindReplace={handleFindReplace} onDropColumn={handleDropColumn} onProceed={() => setStage('analyze')} 
                 rowHistoryLength={rowHistory.length} onTimeTravel={handleTimeTravel}
                 onRestoreQuarantine={() => {
                   setRawRows(prev => [...prev, ...quarantinedRows]);
@@ -498,21 +580,10 @@ export default function AetherApp() {
                 }}
                 onConsolidateCategories={(col) => {
                   import('@/lib/dataUtils').then(({ consolidateCategories }) => {
-                    pushHistory();
-                    setCleanedRows(prev => consolidateCategories(prev, col, 2));
-                    showToast(`Consolidated fuzzy typos in ${col}`, 'success');
+                     pushHistory();
+                     setCleanedRows(prev => consolidateCategories(prev, col, 2));
+                     showToast(`Consolidated fuzzy typos in ${col}`, 'success');
                   });
-                }}
-              />
-            )}
-            
-            {stage === 'path-selection' && (
-              <PathSelectionStage 
-                onSelectPath={(path) => {
-                  setUserPath(path);
-                  if (path === 'analyst') setStage('analyze');
-                  else if (path === 'bi') setStage('dashboard');
-                  else if (path === 'ds') setStage('model');
                 }}
               />
             )}
@@ -570,11 +641,26 @@ export default function AetherApp() {
                 onProceed={() => setStage('deploy')}
               />
             )}
+            {stage === 'orchestrate' && (
+              <OrchestrateStage 
+                headers={headers}
+                filename={filename}
+                onProceed={() => setStage('monitor')} 
+              />
+            )}
+            {stage === 'monitor' && (
+              <MonitorStage 
+                headers={headers}
+                types={types}
+                rows={cleanedRows.length ? cleanedRows : rawRows}
+                onProceed={() => setStage('deploy')} 
+              />
+            )}
             {stage === 'deploy' && (
               <DeployStage
                 headers={headers}
                 types={types}
-                rows={cleanedRows}
+                rows={cleanedRows.length ? cleanedRows : rawRows}
               />
             )}
           </motion.div>

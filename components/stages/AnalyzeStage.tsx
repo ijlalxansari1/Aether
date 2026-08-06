@@ -2,13 +2,10 @@
 
 import { useEffect, useState, Fragment } from 'react';
 import { ColProfile, ColumnType, DataRow } from '@/lib/types';
-import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest, aggregatePivotTable, findTopCorrelations } from '@/lib/dataUtils';
+import { profileColumn, calcBoxPlot, calcPearsonCorrelation, simulateABTest, aggregatePivotTable, findTopCorrelations, generateSmartNarrative } from '@/lib/dataUtils';
 import { getDb, loadDataToTable, executeQuery } from '@/lib/duckdbUtils';
 import { motion } from 'framer-motion';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-  ScatterChart, Scatter, ZAxis, Cell
-} from 'recharts';
+import PlotlyChart from '../PlotlyChart';
 import dynamic from 'next/dynamic';
 
 const MapChartDynamic = dynamic(() => import('../MapChart'), { ssr: false });
@@ -117,27 +114,19 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
     group: scatterGroup ? String(r[scatterGroup] ?? 'Other') : 'Data'
   })).filter(r => !isNaN(r.x) && !isNaN(r.y));
 
-  // Box plot data (Mapped to Bar Chart representation)
+  // Box plot data
   const boxCols = numCols.slice(0, 6);
-  const boxDataRaw = boxCols.map(c => calcBoxPlot(c, rows));
-  const boxData = boxDataRaw.map((b, i) => ({
-    name: boxCols[i],
-    min: b.min,
-    q1: parseFloat((b.q1 - b.min).toFixed(2)),
-    median: parseFloat((b.median - b.q1).toFixed(2)),
-    q3: parseFloat((b.q3 - b.median).toFixed(2)),
-    max: parseFloat((b.max - b.q3).toFixed(2))
+  const boxPlotData = boxCols.map(c => ({
+    type: 'box' as const,
+    y: rows.map(r => Number(r[c])).filter(v => !isNaN(v)),
+    name: c,
+    boxpoints: 'outliers' as const,
+    marker: { color: 'var(--violet)' },
   }));
 
   // Correlation Matrix Data
   const corrCols = numCols.slice(0, 6);
-  const corrData = corrCols.map(c1 => {
-    const row: any = { name: c1 };
-    corrCols.forEach(c2 => {
-      row[c2] = calcPearsonCorrelation(c1, c2, rows);
-    });
-    return row;
-  });
+  const corrZ = corrCols.map(c1 => corrCols.map(c2 => calcPearsonCorrelation(c1, c2, rows)));
 
   // A/B Test Results
   const abTestResults = activeChart === 'abtest' && abTargetCol && abGroupCol && abControlVal && abVariantVal ? 
@@ -201,6 +190,14 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                 </button>
               ))}
             </div>
+          </div>
+          
+          {/* Smart Narrative Auto-Analysis */}
+          <div style={{ marginBottom: '24px', padding: '16px', background: 'linear-gradient(to right, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1))', border: '1px solid var(--violet)', borderRadius: '8px', borderLeft: '4px solid var(--violet)' }}>
+            <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', color: 'var(--violet)' }}>🤖 AI Data Narrative</h4>
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+              {generateSmartNarrative(rows, types)}
+            </p>
           </div>
           
           {/* Smart Insights Panel */}
@@ -281,57 +278,82 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
             )}
           </div>
 
-          <div style={{ height: '400px' }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <div style={{ height: '400px', width: '100%', position: 'relative' }}>
               {activeChart === 'distribution' ? (
-                <BarChart data={distData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
-                  <Bar dataKey="value" fill="var(--cyan)" radius={[4, 4, 0, 0]} />
-                </BarChart>
+                <PlotlyChart 
+                  data={[{
+                    x: distLabels,
+                    y: distCounts,
+                    type: 'bar',
+                    marker: { color: '#06b6d4' } // cyan
+                  }]}
+                  layout={{
+                    title: `Distribution of ${activeDistCol}`,
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
+                    font: { color: '#a3a3a3' },
+                    xaxis: { gridcolor: '#262626' },
+                    yaxis: { gridcolor: '#262626' },
+                    margin: { t: 40, r: 20, l: 40, b: 40 }
+                  }}
+                  config={{ responsive: true, displayModeBar: false }}
+                />
               ) : activeChart === 'scatter' ? (
-                <ScatterChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis type="number" dataKey="x" name={scatterX} stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis type="number" dataKey="y" name={scatterY} stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
-                  <Scatter name="Data" data={scatterData} fill="var(--violet)" />
-                </ScatterChart>
+                <PlotlyChart 
+                  data={[{
+                    x: scatterData.map(d => d.x),
+                    y: scatterData.map(d => d.y),
+                    text: scatterData.map(d => d.group),
+                    mode: 'markers',
+                    type: 'scatter',
+                    marker: { color: '#8b5cf6', size: 8, opacity: 0.7 } // violet
+                  }]}
+                  layout={{
+                    title: `${scatterY} vs ${scatterX}`,
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
+                    font: { color: '#a3a3a3' },
+                    xaxis: { title: scatterX, gridcolor: '#262626' },
+                    yaxis: { title: scatterY, gridcolor: '#262626' },
+                    margin: { t: 40, r: 20, l: 40, b: 40 }
+                  }}
+                  config={{ responsive: true }}
+                />
               ) : activeChart === 'boxplot' ? (
-                <BarChart data={boxData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px' }} />
-                  <Bar dataKey="min" stackId="a" fill="transparent" />
-                  <Bar dataKey="q1" stackId="a" fill="var(--violet)" radius={[0,0,0,0]} />
-                  <Bar dataKey="median" stackId="a" fill="var(--cyan)" radius={[0,0,0,0]} />
-                  <Bar dataKey="q3" stackId="a" fill="var(--emerald)" radius={[0,0,0,0]} />
-                  <Bar dataKey="max" stackId="a" fill="var(--amber)" radius={[0,0,0,0]} />
-                </BarChart>
+                <PlotlyChart 
+                  data={boxPlotData}
+                  layout={{
+                    title: 'Box Plots (Numerical Columns)',
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
+                    font: { color: '#a3a3a3' },
+                    xaxis: { gridcolor: '#262626' },
+                    yaxis: { gridcolor: '#262626' },
+                    margin: { t: 40, r: 20, l: 40, b: 40 },
+                    showlegend: false
+                  }}
+                  config={{ responsive: true }}
+                />
               ) : activeChart === 'correlation' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: `100px repeat(${corrCols.length}, 1fr)`, gap: '4px', height: '100%' }}>
-                  <div />
-                  {corrCols.map(c => <div key={c} style={{ textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>{c}</div>)}
-                  {corrCols.map(c1 => (
-                    <Fragment key={c1}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', paddingRight: '8px' }}>{c1}</div>
-                      {corrCols.map(c2 => {
-                        const val = corrData.find(r => r.name === c1)?.[c2] ?? 0;
-                        const intensity = Math.abs(val);
-                        const isPositive = val >= 0;
-                        const bg = isPositive ? `rgba(16, 185, 129, ${intensity})` : `rgba(244, 63, 94, ${intensity})`;
-                        return (
-                          <div key={c2} style={{ background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: intensity > 0.5 ? '#fff' : 'var(--text-primary)', borderRadius: '4px' }}>
-                            {val.toFixed(2)}
-                          </div>
-                        );
-                      })}
-                    </Fragment>
-                  ))}
-                </div>
+                <PlotlyChart 
+                  data={[{
+                    z: corrZ,
+                    x: corrCols,
+                    y: corrCols,
+                    type: 'heatmap',
+                    colorscale: 'RdBu',
+                    zmin: -1,
+                    zmax: 1
+                  }]}
+                  layout={{
+                    title: 'Pearson Correlation Matrix',
+                    paper_bgcolor: 'transparent',
+                    plot_bgcolor: 'transparent',
+                    font: { color: '#a3a3a3' },
+                    margin: { t: 40, r: 20, l: 80, b: 80 }
+                  }}
+                  config={{ responsive: true }}
+                />
               ) : activeChart === 'map' ? (
                 <MapChartDynamic data={rows} latCol={mapLat} lngCol={mapLng} />
               ) : (
@@ -362,7 +384,6 @@ export default function AnalyzeStage({ headers, types, rows, onProceed, onUpdate
                   )}
                 </div>
               )}
-            </ResponsiveContainer>
           </div>
         </motion.div>
       ) : mainTab === 'pivot' ? (

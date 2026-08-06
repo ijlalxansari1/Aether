@@ -66,9 +66,107 @@ export interface KPI {
   up: boolean;
 }
 
-export type Stage = 'ingest' | 'store' | 'clean' | 'path-selection' | 'ethics' | 'analyze' | 'story' | 'dashboard' | 'report' | 'model' | 'evaluate' | 'deploy';
+// ─── Pipeline Stages & Paths ─────────────────────────────────────────────────
+
+export type Stage = 'ingest' | 'discovery' | 'clean' | 'ethics' | 'analyze' | 'story' | 'dashboard' | 'report' | 'model' | 'evaluate' | 'deploy' | 'orchestrate' | 'monitor';
 
 export type UserPath = 'analyst' | 'bi' | 'ds' | null;
+
+// ─── Semantic & Understanding Types ──────────────────────────────────────────
+
+export type SemanticType =
+  | 'identifier' | 'dimension' | 'measure' | 'temporal'
+  | 'categorical' | 'text' | 'geo' | 'currency' | 'percentage'
+  | 'email' | 'phone' | 'name' | 'address' | 'unknown';
+
+export type BusinessDomain =
+  | 'ecommerce' | 'healthcare' | 'finance' | 'hr'
+  | 'marketing' | 'logistics' | 'education' | 'iot' | 'generic';
+
+export interface ColumnUnderstanding {
+  name: string;
+  type: ColumnType;
+  semanticType: SemanticType;
+  nullCount: number;
+  nullPercent: number;
+  uniqueCount: number;
+  uniquePercent: number;
+  isSensitive: boolean;
+  sampleValues: (string | number | boolean | null)[];
+  profile: ColProfile;
+}
+
+export interface DerivableMetric {
+  name: string;
+  formula: string;
+  reason: string;
+  inputCompleteness: number;
+}
+
+export interface DataRelationship {
+  col1: string;
+  col2: string;
+  type: 'correlation' | 'dependency';
+  strength: number;
+}
+
+export interface DataAnomaly {
+  column: string;
+  description: string;
+  count: number;
+}
+
+export interface DataUnderstanding {
+  // Schema
+  schema: ColumnUnderstanding[];
+  rowCount: number;
+  columnCount: number;
+
+  // Structure classification
+  identifiers: string[];
+  dimensions: string[];
+  measures: string[];
+  temporals: string[];
+  sensitiveFields: string[];
+
+  // Quality metrics
+  completeness: number;
+  duplicateCount: number;
+  duplicatePercent: number;
+  outlierCount: number;
+  corruptRowCount: number;
+
+  // Derived intelligence
+  domain: BusinessDomain;
+  domainConfidence: number;
+  derivableMetrics: DerivableMetric[];
+  relationships: DataRelationship[];
+  anomalies: DataAnomaly[];
+
+  // Decision Engine output
+  recommendations: AetherRecommendation[];
+  warnings: AetherWarning[];
+}
+
+export interface AetherRecommendation {
+  id: string;
+  priority: number;
+  category: 'quality' | 'analysis' | 'dashboard' | 'prediction' | 'governance';
+  title: string;
+  description: string;
+  reason: string;
+  action: string;
+  estimatedImpact: 'high' | 'medium' | 'low';
+}
+
+export interface AetherWarning {
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  column?: string;
+  evidence: string;
+}
+
+// ─── Visualization Types ─────────────────────────────────────────────────────
 
 export interface BoxPlotData {
   col: string;
@@ -88,13 +186,6 @@ export interface ReportConfig {
   generatedAt: string;
 }
 
-export interface DataContractRule {
-  id: string;
-  column: string;
-  operator: '>' | '<' | '==' | '!=' | 'contains' | 'not_null';
-  value: string;
-}
-
 export interface AetherState {
   stage: Stage;
   userPath: UserPath;
@@ -107,4 +198,15 @@ export interface AetherState {
   filename: string;
   ingestedAt: Date | null;
   cleanOpsApplied: string[];
+}
+
+export type StoryBlockType = 'kpi' | 'timeseries' | 'map' | 'composition' | 'correlation' | 'distribution';
+
+export interface StoryBlock {
+  id: string;
+  type: StoryBlockType;
+  title: string;
+  description: string;
+  width: '100%' | '66.66%' | '50%' | '33.33%';
+  config?: Record<string, any>;
 }

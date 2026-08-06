@@ -1,52 +1,55 @@
 'use client';
 
-import { Stage, UserPath } from '@/lib/types';
+import { Stage, UserPath, DataUnderstanding } from '@/lib/types';
 import { useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
-
-const BASE_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
-  { id: 'ingest',    label: 'Ingest',     icon: '⬆',  desc: 'CSV · JSON · Paste · Drag & drop', color: '#00d4ff' },
-  { id: 'store',     label: 'Store',      icon: '🗄',  desc: 'Schema detection · Sort · Filter', color: '#7c3aed' },
-  { id: 'clean',     label: 'Clean',      icon: '🧹',  desc: 'Nulls · Dupes · Outliers · Regex', color: '#10b981' },
-];
-
-const ANALYST_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
-  { id: 'analyze',   label: 'Analyze',    icon: '📊',  desc: 'Scatter · Box plot · Correlation', color: '#f59e0b' },
-];
-
-const BI_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
-  { id: 'dashboard', label: 'Dashboard',  icon: '📈',  desc: 'KPIs · Bar · Donut · Trend', color: '#6366f1' },
-  { id: 'report',    label: 'BI Report',  icon: '📋',  desc: 'PDF · HTML · Share link', color: '#00d4ff' },
-];
-
-const DS_STAGES: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
-  { id: 'model',     label: 'Model',      icon: '🧠',  desc: 'AutoML · Train · Test split', color: '#8b5cf6' },
-  { id: 'evaluate',  label: 'Evaluate',   icon: '🎯',  desc: 'ROC · Confusion Matrix', color: '#ec4899' },
-  { id: 'deploy',    label: 'Deploy',     icon: '🚀',  desc: 'API Endpoint · Batch predict', color: '#10b981' },
-];
 
 interface PipelineBarProps {
   current: Stage;
   userPath: UserPath;
   hasData: boolean;
+  understanding?: DataUnderstanding | null;
   onStageClick: (s: Stage) => void;
 }
 
-export default function PipelineBar({ current, userPath, hasData, onStageClick }: PipelineBarProps) {
+export default function PipelineBar({ current, userPath, hasData, understanding, onStageClick }: PipelineBarProps) {
   const activeStages = useMemo(() => {
-    let stages = [...BASE_STAGES];
-    
-    // Persist Path Selection node once reached or selected
-    if (current === 'path-selection' || userPath) {
-      stages.push({ id: 'path-selection', label: 'Path', icon: '🛣️', desc: 'Select your journey', color: '#f59e0b' });
+    const stages: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
+      { id: 'ingest',    label: 'Ingest',     icon: '⬆',  desc: 'Extract datasets', color: '#00d4ff' },
+      { id: 'discovery', label: 'Discovery',  icon: '🔍', desc: 'Aether Decisions', color: '#10b981' },
+      { id: 'clean',     label: 'Clean',      icon: '🧹',  desc: 'Resolve issues', color: '#7c3aed' },
+      { id: 'analyze',   label: 'Analyze',    icon: '📊',  desc: 'Explore stats', color: '#f59e0b' },
+    ];
+
+    if (!understanding) {
+      const extraStages: { id: Stage; label: string; icon: string; desc: string; color: string }[] = [
+        { id: 'dashboard', label: 'Dashboard',  icon: '📈',  desc: 'Visualize data', color: '#6366f1' },
+        { id: 'model',     label: 'Model',      icon: '🧠',  desc: 'Train ML models', color: '#ec4899' },
+        { id: 'deploy',    label: 'Deploy',     icon: '🚀',  desc: 'Publish pipeline', color: '#10b981' }
+      ];
+      return [
+        ...stages,
+        ...extraStages
+      ];
     }
 
-    if (userPath === 'analyst') stages = [...stages, ...ANALYST_STAGES];
-    else if (userPath === 'bi') stages = [...stages, ...BI_STAGES];
-    else if (userPath === 'ds') stages = [...stages, ...DS_STAGES];
-    
+    // Dynamic addition of dashboard stage if recommended
+    const recs = understanding.recommendations || [];
+    const hasDashboard = recs.some(r => r.category === 'dashboard');
+    const hasML = recs.some(r => r.category === 'prediction' && r.id !== 'no_prediction');
+
+    if (hasDashboard) {
+      stages.push({ id: 'dashboard', label: 'Dashboard',  icon: '📈',  desc: 'Visualize data', color: '#6366f1' });
+    }
+
+    if (hasML) {
+      stages.push({ id: 'model',     label: 'Model',      icon: '🧠',  desc: 'Train ML models', color: '#ec4899' });
+    }
+
+    stages.push({ id: 'deploy',    label: 'Deploy',     icon: '🚀',  desc: 'Publish pipeline', color: '#10b981' });
+
     return stages;
-  }, [userPath, current]);
+  }, [understanding]);
 
   const curIdx = activeStages.findIndex(s => s.id === current);
   const scrollRef = useRef<HTMLDivElement>(null);

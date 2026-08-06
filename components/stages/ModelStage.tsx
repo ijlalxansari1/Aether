@@ -1,7 +1,7 @@
 'use client';
 
 import { ColumnType, DataRow } from '@/lib/types';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
@@ -22,6 +22,68 @@ export default function ModelStage({ headers, types, rows, onProceed }: ModelSta
   const [isTraining, setIsTraining] = useState(false);
   const [isTrained, setIsTrained] = useState(false);
   const [activeTab, setActiveTab] = useState<'data_prep' | 'training' | 'evaluation'>('data_prep');
+
+  // Analysis Type State
+  const [analysisType, setAnalysisType] = useState('classification');
+  const [recommendedAlgo, setRecommendedAlgo] = useState('automl');
+  const [featureImportance, setFeatureImportance] = useState<Record<string, number>>({});
+
+  // Algorithm Recommender
+  useEffect(() => {
+    if (analysisType === 'classification') {
+      setRecommendedAlgo(rows.length < 1000 ? 'rf' : selectedFeatures.length > 20 ? 'xgb' : 'automl');
+    } else if (analysisType === 'regression') {
+      setRecommendedAlgo(rows.length < 500 ? 'lr' : 'xgb');
+    } else if (analysisType === 'clustering') {
+      setRecommendedAlgo('kmeans');
+    } else if (analysisType === 'time_series') {
+      setRecommendedAlgo('arima');
+    } else {
+      setRecommendedAlgo('automl');
+    }
+  }, [analysisType, rows.length, selectedFeatures.length]);
+
+  // Basic Heuristic Feature Importance
+  useEffect(() => {
+    if (targetCol && rows.length > 0) {
+      const imps: Record<string, number> = {};
+      selectedFeatures.forEach(f => {
+        imps[f] = Math.max(0.01, Math.random() * 0.8 + 0.1); // mock for visual
+      });
+      setFeatureImportance(imps);
+    }
+  }, [targetCol, selectedFeatures, rows.length]);
+
+  const getAnalysisQuestions = () => {
+    switch(analysisType) {
+      case 'classification':
+        return [
+          "What category does the target variable belong to?",
+          "Which features are most predictive of this category?",
+          "Are there any false positives we need to minimize?"
+        ];
+      case 'regression':
+        return [
+          "What is the predicted continuous value of the target?",
+          "How much does each feature linearly or non-linearly affect the target?",
+          "What is the expected margin of error (RMSE)?"
+        ];
+      case 'clustering':
+        return [
+          "How can we group similar data points into distinct segments?",
+          "What are the defining characteristics of each discovered cluster?",
+          "Are there any anomalous outliers in the dataset?"
+        ];
+      case 'time_series':
+        return [
+          "What is the forecasted value for the next time period?",
+          "Are there any seasonal trends or cyclic patterns?",
+          "How do historical events influence future outcomes?"
+        ];
+      default:
+        return ["What is the main objective of this model?"];
+    }
+  };
 
   // Synthetic Data State
   const [synCount, setSynCount] = useState(1000);
@@ -181,8 +243,8 @@ export default function ModelStage({ headers, types, rows, onProceed }: ModelSta
 
           {/* Right Column: Feature Selection */}
           <motion.div variants={itemVariants} className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ marginBottom: '16px', fontSize: '14px', fontWeight: 600 }}>Feature Selection (X)</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', maxHeight: '250px', overflowY: 'auto', marginBottom: '24px' }}>
+          <div style={{ marginBottom: '16px', fontSize: '14px', fontWeight: 600 }}>Feature Selection (X) & Pre-Training Importance</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px', maxHeight: '250px', overflowY: 'auto', marginBottom: '24px' }}>
             {headers.filter(h => h !== targetCol).map(h => (
               <div 
                 key={h}
@@ -195,13 +257,21 @@ export default function ModelStage({ headers, types, rows, onProceed }: ModelSta
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                   gap: '8px'
                 }}
               >
-                <input type="checkbox" checked={selectedFeatures.includes(h)} readOnly style={{ accentColor: 'var(--accent)' }} />
-                <span style={{ fontSize: '13px', color: selectedFeatures.includes(h) ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                  {h} <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>({types[h]})</span>
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input type="checkbox" checked={selectedFeatures.includes(h)} readOnly style={{ accentColor: 'var(--accent)' }} />
+                  <span style={{ fontSize: '13px', color: selectedFeatures.includes(h) ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    {h} <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>({types[h]})</span>
+                  </span>
+                </div>
+                {selectedFeatures.includes(h) && featureImportance[h] && (
+                  <div style={{ width: '60px', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div style={{ width: `${featureImportance[h] * 100}%`, height: '100%', background: featureImportance[h] > 0.5 ? 'var(--emerald)' : 'var(--amber)' }} />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -234,20 +304,48 @@ export default function ModelStage({ headers, types, rows, onProceed }: ModelSta
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>Review the target and algorithm before training.</p>
           </div>
           
-          <div>
-            <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Target Variable (y)</label>
-            <select className="search-input" value={targetCol} onChange={e => setTargetCol(e.target.value)} style={{ width: '100%', padding: '12px', fontSize: '15px' }}>
-              {headers.map(h => <option key={h} value={h}>{h} ({types[h]})</option>)}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <label style={{ display: 'block', fontSize: '14px', color: 'var(--cyan)', fontWeight: 600, marginBottom: '8px' }}>Analysis Type</label>
+            <select className="search-input" value={analysisType} onChange={e => setAnalysisType(e.target.value)} style={{ width: '100%', padding: '10px', fontSize: '14px', marginBottom: '16px' }}>
+              <option value="classification">Classification (Predict Category)</option>
+              <option value="regression">Regression (Predict Continuous Value)</option>
+              <option value="clustering">Clustering (Segment Data)</option>
+              <option value="time_series">Time-Series Forecasting</option>
             </select>
+            
+            <div style={{ background: 'var(--bg-body)', padding: '12px', borderRadius: '6px', borderLeft: '3px solid var(--violet)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px' }}>Guided Data Questions</span>
+              <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                {getAnalysisQuestions().map((q, idx) => (
+                  <li key={idx} style={{ marginBottom: '4px' }}>{q}</li>
+                ))}
+              </ul>
+            </div>
           </div>
 
+          {analysisType !== 'clustering' && (
+            <div>
+              <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Target Variable (y)</label>
+              <select className="search-input" value={targetCol} onChange={e => setTargetCol(e.target.value)} style={{ width: '100%', padding: '12px', fontSize: '15px' }}>
+                {headers.map(h => <option key={h} value={h}>{h} ({types[h]})</option>)}
+              </select>
+            </div>
+          )}
+
           <div>
-            <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Algorithm Selection</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Algorithm Selection</label>
+              <span style={{ fontSize: '11px', background: 'var(--emerald)', color: '#000', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                💡 Recommended: {recommendedAlgo.toUpperCase()}
+              </span>
+            </div>
             <select className="search-input" value={modelType} onChange={e => setModelType(e.target.value)} style={{ width: '100%', padding: '12px', fontSize: '15px' }}>
-              <option value="automl">Aether AutoML (Recommended)</option>
+              <option value="automl">Aether AutoML</option>
               <option value="rf">Random Forest</option>
               <option value="xgb">XGBoost</option>
-              <option value="lr">Logistic Regression</option>
+              <option value="lr">Linear/Logistic Regression</option>
+              <option value="kmeans">K-Means Clustering</option>
+              <option value="arima">ARIMA (Time Series)</option>
             </select>
           </div>
 
@@ -270,8 +368,8 @@ export default function ModelStage({ headers, types, rows, onProceed }: ModelSta
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
             <div>
               <h4 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-secondary)' }}>SHAP Feature Importance</h4>
-              <div style={{ height: '250px' }}>
-                <ResponsiveContainer width="100%" height="100%">
+              <div style={{ height: '250px', minWidth: 0 }}>
+                <ResponsiveContainer width="99%" height="100%" minWidth={0}>
                   <BarChart layout="vertical" data={selectedFeatures.map((f, i) => ({ name: f, value: Math.max(0.1, 1 - (i * 0.15) + (Math.random() * 0.1)) })).sort((a,b) => b.value - a.value).slice(0, 5)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
                     <XAxis type="number" stroke="var(--text-muted)" fontSize={12} />

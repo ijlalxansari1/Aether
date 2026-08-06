@@ -6,5 +6,6 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/$1',
   },
   testMatch: ['**/__tests__/**/*.test.[jt]s?(x)', '**/?(*.)+(spec|test).[jt]s?(x)'],
+  testPathIgnorePatterns: ['<rootDir>/e2e/', '<rootDir>/node_modules/'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };

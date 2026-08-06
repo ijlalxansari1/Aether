@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import GlobalSidebar from '@/components/GlobalSidebar';
+import TopNavigation from '@/components/TopNavigation';
 
 export const metadata: Metadata = {
   title: 'Aether — End-to-End DataOps Platform',
@@ -22,7 +23,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <div className="app-layout">
             <GlobalSidebar />
-            <div className="app-root" style={{ flex: 1, overflowY: 'auto' }}>
+            <div className="app-root" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              <TopNavigation />
               {children}
             </div>
           </div>
