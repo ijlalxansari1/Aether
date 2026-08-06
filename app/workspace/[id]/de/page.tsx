@@ -53,8 +53,8 @@ export default function DataEngineeringPage() {
   function handleApplyOp(id: string) {
     if (appliedOps.has(id)) return;
     pushHistory();
-    setCleanedRows(prev => applyCleanOp(id, prev, headers, types));
-    setAppliedOps(prev => new Set([...prev, id]));
+    setCleanedRows(applyCleanOp(id, cleanedRows, headers, types));
+    setAppliedOps(new Set([...appliedOps, id]));
   }
 
   function handleApplyAll() {
@@ -90,7 +90,7 @@ export default function DataEngineeringPage() {
 
   function handleFindReplace(col: string, find: string, replace: string) {
     pushHistory();
-    setCleanedRows(prev => findReplace(col, find, replace, prev));
+    setCleanedRows(findReplace(col, find, replace, cleanedRows));
   }
 
   function handleDropColumn(col: string) {
@@ -122,7 +122,7 @@ export default function DataEngineeringPage() {
           filename={dataset?.name || 'Untitled Workspace'}
           ingestedAt={dataset?.ingestedAt ? new Date(dataset.ingestedAt) : null}
           quarantinedCount={0}
-          sourceType={dataset?.sourceType || 'csv'}
+          sourceType={(dataset?.sourceType || 'csv') as any}
           onProceed={() => setSubStage('clean')}
           onNavigate={(tgt) => {
             if (tgt === 'clean') setSubStage('clean');
@@ -146,7 +146,7 @@ export default function DataEngineeringPage() {
           onConsolidateCategories={(col) => {
             import('@/lib/dataUtils').then(({ consolidateCategories }) => {
               pushHistory();
-              setCleanedRows(prev => consolidateCategories(prev, col, 2));
+              setCleanedRows(consolidateCategories(cleanedRows, col, 2));
             });
           }}
           rowHistoryLength={rowHistory.length}
